@@ -15,7 +15,6 @@ jobs:
   prepare:
     uses: ./.github/workflows/prepare-release.yml
     with:
-      pre1-cap: true
       base-ref: ${{ github.sha }}
       pre-tasks: |
         deno task ci
