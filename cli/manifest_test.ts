@@ -9,7 +9,10 @@ Deno.test("readVersion: top-level $.version", () => {
 
 Deno.test("readVersion: nested path", () => {
   eq(
-    readVersion({ project: { meta: { version: "0.4.0" } } }, "$.project.meta.version"),
+    readVersion(
+      { project: { meta: { version: "0.4.0" } } },
+      "$.project.meta.version",
+    ),
     "0.4.0",
   );
 });
@@ -26,12 +29,18 @@ Deno.test("readVersion: rejects unsupported JSONPath", () => {
 });
 
 Deno.test("writeVersion: top-level update", () => {
-  const updated = writeVersion({ version: "1.0.0", name: "x" }, "$.version", "1.1.0");
+  const updated = writeVersion(
+    { version: "1.0.0", name: "x" },
+    "$.version",
+    "1.1.0",
+  );
   eq(updated, { version: "1.1.0", name: "x" });
 });
 
 Deno.test("writeVersion: nested update preserves siblings", () => {
-  const original = { project: { meta: { version: "0.1.0", author: "a" }, other: 1 } };
+  const original = {
+    project: { meta: { version: "0.1.0", author: "a" }, other: 1 },
+  };
   const updated = writeVersion(original, "$.project.meta.version", "0.2.0");
   eq(updated.project.meta.version, "0.2.0");
   eq(updated.project.meta.author, "a");

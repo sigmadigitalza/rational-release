@@ -119,7 +119,9 @@ export function rewriteUnreleased(changelog: string, body: string): string {
   const after = changelog.slice(nextOffset);
 
   const trimmedBody = body.replace(/\n+$/, "\n");
-  return `${before}\n${trimmedBody}${after.startsWith("\n") ? after : "\n" + after}`;
+  return `${before}\n${trimmedBody}${
+    after.startsWith("\n") ? after : "\n" + after
+  }`;
 }
 
 /**
@@ -133,7 +135,9 @@ export function finaliseUnreleased(
 ): string {
   const headerRe = /^## \[Unreleased\][^\n]*\n/m;
   if (!headerRe.test(changelog)) {
-    throw new Error("CHANGELOG.md has no `## [Unreleased]` section to finalise.");
+    throw new Error(
+      "CHANGELOG.md has no `## [Unreleased]` section to finalise.",
+    );
   }
   const fresh = [
     "## [Unreleased]",

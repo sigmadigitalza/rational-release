@@ -1,7 +1,15 @@
 # Wrapper: cut a release using our own reusable workflow.
 # Dogfoods rational-release/cut-release.yml against this repo.
-# JSR publishing remains in publish.yml — it triggers on the tag push
-# this workflow creates.
+#
+# JSR publishing remains in publish.yml — it triggers via workflow_run
+# after this workflow succeeds (the tag this workflow pushes uses
+# GITHUB_TOKEN, which by design does not fire downstream `push` events).
+#
+# After the tag is created, we run an artefact-task that tarballs the
+# reusable workflows under .github/workflows/ as `workflows-vX.Y.Z.tar.gz`
+# and attaches it to the GitHub Release. Consumers who want a frozen
+# copy of the workflows alongside a CLI tag can download it directly
+# from the release page.
 
 name: Cut Release
 
@@ -19,3 +27,10 @@ jobs:
     uses: ./.github/workflows/cut-release.yml
     with:
       base-ref: ${{ github.sha }}
+      artefact-task: |
+        tar -czf "workflows-v${VERSION}.tar.gz" -C .github \
+          workflows/prepare-release.yml \
+          workflows/cut-release.yml \
+          workflows/validate-pr.yml
+      artefact-paths: |
+        workflows-v*.tar.gz

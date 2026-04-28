@@ -98,8 +98,12 @@ Deno.test("rewriteUnreleased: replaces only [Unreleased]", () => {
 - preserved entry
 `;
   const updated = rewriteUnreleased(original, "### Added\n\n- new entry\n");
-  if (updated.includes("old entry")) throw new Error("Old [Unreleased] not replaced");
-  if (!updated.includes("preserved entry")) throw new Error("Past section corrupted");
+  if (updated.includes("old entry")) {
+    throw new Error("Old [Unreleased] not replaced");
+  }
+  if (!updated.includes("preserved entry")) {
+    throw new Error("Past section corrupted");
+  }
   if (!updated.includes("- new entry")) throw new Error("New body missing");
 });
 
@@ -132,8 +136,12 @@ Deno.test("finaliseUnreleased: promotes header and prepends fresh block", () => 
   if (idxUnreleased < 0 || idxUnreleased >= idx020) {
     throw new Error("Fresh [Unreleased] not prepended above new version");
   }
-  if (!updated.includes("- the feature")) throw new Error("Body lost in promotion");
-  if (!updated.includes("## [0.1.0] - 2026-01-01")) throw new Error("Prior section lost");
+  if (!updated.includes("- the feature")) {
+    throw new Error("Body lost in promotion");
+  }
+  if (!updated.includes("## [0.1.0] - 2026-01-01")) {
+    throw new Error("Prior section lost");
+  }
 });
 
 Deno.test("extractSection: returns body of named version", () => {
@@ -160,7 +168,9 @@ Deno.test("extractSection: returns body of named version", () => {
 - old
 `;
   const body = extractSection(cl, "1.0.0");
-  if (!body.includes("- a1")) throw new Error("Missing entry from target section");
+  if (!body.includes("- a1")) {
+    throw new Error("Missing entry from target section");
+  }
   if (body.includes("- u1")) throw new Error("Bled into [Unreleased] above");
   if (body.includes("- old")) throw new Error("Bled into older section below");
 });
@@ -173,11 +183,19 @@ Deno.test("bootstrapTemplate: produces a valid Keep-a-Changelog skeleton", () =>
   const template = bootstrapTemplate();
   // Must contain the canonical header and an empty [Unreleased] section
   // that rewriteUnreleased can target.
-  if (!template.includes("# Changelog")) throw new Error("Missing top-level header");
-  if (!template.includes("## [Unreleased]")) throw new Error("Missing [Unreleased] section");
+  if (!template.includes("# Changelog")) {
+    throw new Error("Missing top-level header");
+  }
+  if (!template.includes("## [Unreleased]")) {
+    throw new Error("Missing [Unreleased] section");
+  }
 
   // Round-trip: rewriteUnreleased should accept the template without throwing.
   const rewritten = rewriteUnreleased(template, "### Added\n\n- a thing\n");
-  if (!rewritten.includes("- a thing")) throw new Error("rewriteUnreleased did not apply");
-  if (!rewritten.includes("## [Unreleased]")) throw new Error("[Unreleased] header lost");
+  if (!rewritten.includes("- a thing")) {
+    throw new Error("rewriteUnreleased did not apply");
+  }
+  if (!rewritten.includes("## [Unreleased]")) {
+    throw new Error("[Unreleased] header lost");
+  }
 });

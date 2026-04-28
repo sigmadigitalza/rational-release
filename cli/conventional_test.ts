@@ -52,7 +52,9 @@ Deno.test("subjectToBump: breaking → major", () => {
 });
 
 Deno.test("subjectToBump: docs/chore/ci/refactor/style/test/build → none", () => {
-  for (const t of ["docs", "chore", "ci", "refactor", "style", "test", "build"]) {
+  for (
+    const t of ["docs", "chore", "ci", "refactor", "style", "test", "build"]
+  ) {
     eq(subjectToBump(`${t}: x`), "none");
   }
 });
