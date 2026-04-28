@@ -204,10 +204,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "$PREV_TAG" ]; then
-            since=$(git log -1 --format=%cI "$PREV_TAG")
+            since=$(git log -1 --format=%ct "$PREV_TAG")
             compare="${PREV_TAG}...v${VERSION}"
           else
-            since="1970-01-01T00:00:00Z"
+            since=0
             compare=""
           fi
           {
@@ -216,7 +216,7 @@ jobs:
             echo
             gh pr list --state merged --base "${GITHUB_REF_NAME:-main}" --limit 200 \
               --json number,title,author,mergedAt \
-              --jq "[ .[] | select(.mergedAt > \"$since\") ] | .[] | \"- \(.title) (#\(.number) by @\(.author.login))\""
+              --jq "[ .[] | select((.mergedAt | fromdateiso8601) > $since) ] | .[] | \"- \(.title) (#\(.number) by @\(.author.login))\""
             if [ -n "$compare" ]; then
               echo
               echo "**Full diff:** https://github.com/${{ github.repository }}/compare/${compare}"
