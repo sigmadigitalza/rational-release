@@ -1,0 +1,24 @@
+# CI for the rational-release repo itself: lint, type-check, run the
+# CLI test suite. The release flow lives in release.yml — this workflow
+# only validates that the CLI is healthy.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno task ci

@@ -1,0 +1,25 @@
+# Example consumer wrapper. Drop into your repo as
+# .github/workflows/cut-release.yml.
+
+name: Cut Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cut:
+    uses: sigmadigitalza/rational-release/.github/workflows/cut-release.yml@v1
+    with:
+      mirror-paths: |
+        CHANGELOG.md:docs/server/12-changelog.md
+      commit-paths: |
+        ui/search-index.json
+      artefact-task: deno task package
+      artefact-paths: |
+        dist/*.tar.gz

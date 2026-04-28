@@ -1,0 +1,92 @@
+# Reusable: validate a PR title against the conventional commits spec.
+#
+# Defaults to report-only — writes a pass/fail block to the step summary
+# but doesn't fail the workflow. Set `gate: true` to turn the check into
+# a required status that blocks merge when wired up in branch protection.
+
+name: rational-release / validate-pr
+
+on:
+  workflow_call:
+    inputs:
+      allowed-types:
+        type: string
+        default: feat,fix,docs,style,refactor,perf,test,build,ci,chore,revert
+      require-scope:
+        type: boolean
+        default: false
+      gate:
+        description: "Fail the workflow on invalid title (vs. report-only)."
+        type: boolean
+        default: false
+      base-ref:
+        type: string
+        default: v1
+      runs-on:
+        type: string
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 5
+    steps:
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Validate
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          ALLOWED: ${{ inputs.allowed-types }}
+          REQUIRE_SCOPE: ${{ inputs.require-scope }}
+          GATE: ${{ inputs.gate }}
+          CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
+        run: |
+          set -euo pipefail
+          # Use the CLI's parser for behavioural parity with bump computation.
+          # We call a tiny inline TS that imports parseSubject and prints a JSON verdict.
+          cat > /tmp/validate.ts <<'EOF'
+          import { parseSubject } from "https://raw.githubusercontent.com/sigmadigitalza/rational-release/__BASE_REF__/cli/conventional.ts";
+          const [title, allowedRaw, requireScope] = Deno.args;
+          const allowed = new Set(allowedRaw.split(",").map((s) => s.trim()));
+          const parsed = parseSubject(title);
+          const result = { ok: false, reason: "" as string, parsed };
+          if (!parsed) {
+            result.reason = "Title does not match `type(scope)?!?: description`.";
+          } else if (!allowed.has(parsed.type)) {
+            result.reason = `Type \`${parsed.type}\` is not in the allowed list (${allowedRaw}).`;
+          } else if (requireScope === "true" && !parsed.scope) {
+            result.reason = "Scope is required (`type(scope): ...`).";
+          } else {
+            result.ok = true;
+          }
+          console.log(JSON.stringify(result));
+          EOF
+          sed -i "s|__BASE_REF__|${{ inputs.base-ref }}|g" /tmp/validate.ts
+          verdict=$(deno run --allow-read /tmp/validate.ts "$PR_TITLE" "$ALLOWED" "$REQUIRE_SCOPE")
+          ok=$(echo "$verdict" | jq -r '.ok')
+          reason=$(echo "$verdict" | jq -r '.reason')
+
+          {
+            echo "## PR title check"
+            echo
+            echo "**Title:** \`$PR_TITLE\`"
+            echo
+            if [ "$ok" = "true" ]; then
+              echo "✅ Conforms to Conventional Commits."
+            else
+              echo "❌ $reason"
+              echo
+              echo "Expected format: \`type(scope)?!?: description\`. Allowed types: \`$ALLOWED\`."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$ok" != "true" ] && [ "$GATE" = "true" ]; then
+            echo "::error::PR title failed validation: $reason"
+            exit 1
+          fi

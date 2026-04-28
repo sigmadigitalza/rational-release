@@ -1,0 +1,26 @@
+# Example consumer wrapper. Drop into your repo as
+# .github/workflows/prepare-release.yml.
+
+name: Prepare Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    uses: sigmadigitalza/rational-release/.github/workflows/prepare-release.yml@v1
+    with:
+      # Most projects override only these:
+      pre-1.0-cap: true
+      pre-tasks: |
+        deno task test
+        deno task build
+      commit-paths: |
+        ui/search-index.json
+      mirror-paths: |
+        CHANGELOG.md:docs/server/12-changelog.md

@@ -1,0 +1,249 @@
+# Reusable: cut a release on merge of a release/* PR.
+#
+# Called on pull_request:closed from the consumer repo. Fires only when
+# the merged PR's head branch matches `^release/v` and the PR was
+# actually merged (not just closed). Finalises the changelog, tags the
+# version, runs the consumer's artefact-task, and creates a GitHub
+# Release with the changelog section as the body and any built
+# artefacts attached.
+
+name: rational-release / cut
+
+on:
+  workflow_call:
+    inputs:
+      manifest-path:
+        type: string
+        default: deno.json
+      manifest-jsonpath:
+        type: string
+        default: $.version
+      release-branch-prefix:
+        type: string
+        default: release/v
+      changelog-path:
+        type: string
+        default: CHANGELOG.md
+      mirror-paths:
+        type: string
+        default: ""
+      commit-paths:
+        type: string
+        default: ""
+      artefact-task:
+        description: "Shell command run after the tag is created (e.g. `deno task package`)."
+        type: string
+        default: ""
+      artefact-paths:
+        description: "Newline-separated globs to attach to the GitHub Release."
+        type: string
+        default: ""
+      base-ref:
+        type: string
+        default: v1
+      runs-on:
+        type: string
+        default: ubuntu-latest
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cut:
+    if: |
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release/v')
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 15
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Resolve version from branch name
+        id: version
+        env:
+          PREFIX: ${{ inputs.release-branch-prefix }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          version="${HEAD_REF#${PREFIX}}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Branch ${HEAD_REF} did not yield a valid semver after stripping ${PREFIX}"
+            exit 1
+          fi
+          echo "version=$version" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Cross-check version against manifest
+        env:
+          MANIFEST: ${{ inputs.manifest-path }}
+          JSONPATH: ${{ inputs.manifest-jsonpath }}
+          VERSION: ${{ steps.version.outputs.version }}
+          CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
+        run: |
+          set -euo pipefail
+          actual=$(deno run --allow-read "$CLI" read-version "$MANIFEST" --jsonpath "$JSONPATH")
+          if [ "$actual" != "$VERSION" ]; then
+            echo "::error::Branch says v${VERSION} but ${MANIFEST} has ${actual}. Refusing to cut."
+            exit 1
+          fi
+
+      - name: Refuse to re-tag existing version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            echo "::error::Tag v${VERSION} already exists locally."
+            exit 1
+          fi
+          if git ls-remote --tags origin "refs/tags/v${VERSION}" | grep -q .; then
+            echo "::error::Tag v${VERSION} already exists on origin."
+            exit 1
+          fi
+
+      - name: Resolve previous release tag
+        id: prev
+        run: |
+          prev=$(git tag --list 'v*' --sort=-v:refname | head -n 1 || true)
+          echo "tag=$prev" >> "$GITHUB_OUTPUT"
+
+      - name: Finalise changelog
+        env:
+          CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
+          CHANGELOG: ${{ inputs.changelog-path }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: deno run --allow-read --allow-write "$CLI" changelog-finalise "$CHANGELOG" "$VERSION"
+
+      - name: Mirror changelog
+        if: inputs.mirror-paths != ''
+        run: |
+          set -euo pipefail
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            src="${line%%:*}"
+            dst="${line#*:}"
+            mkdir -p "$(dirname "$dst")"
+            cp "$src" "$dst"
+          done <<< "${{ inputs.mirror-paths }}"
+
+      - name: Extract release notes for this version
+        id: notes
+        env:
+          CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
+          CHANGELOG: ${{ inputs.changelog-path }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          deno run --allow-read "$CLI" extract-section "$CHANGELOG" "$VERSION" > release-notes.md
+          [ -s release-notes.md ] || echo "_See changelog for details._" > release-notes.md
+
+      - name: Stage and commit finalisation
+        id: stage
+        env:
+          CHANGELOG: ${{ inputs.changelog-path }}
+          MIRRORS: ${{ inputs.mirror-paths }}
+          EXTRAS: ${{ inputs.commit-paths }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git add "$CHANGELOG"
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            dst="${line#*:}"
+            [ -e "$dst" ] && git add "$dst"
+          done <<< "$MIRRORS"
+          while IFS= read -r p; do
+            [ -z "$p" ] && continue
+            [ -e "$p" ] && git add "$p"
+          done <<< "$EXTRAS"
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "chore(release): finalise v${VERSION}"
+            git push origin HEAD
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Tag release
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: Run artefact-task
+        if: inputs.artefact-task != ''
+        run: |
+          set -euo pipefail
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            echo "::group::$line"
+            eval "$line"
+            echo "::endgroup::"
+          done <<< "${{ inputs.artefact-task }}"
+
+      - name: Append PRs since previous tag to release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREV_TAG: ${{ steps.prev.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "$PREV_TAG" ]; then
+            since=$(git log -1 --format=%cI "$PREV_TAG")
+            compare="${PREV_TAG}...v${VERSION}"
+          else
+            since="1970-01-01T00:00:00Z"
+            compare=""
+          fi
+          {
+            echo
+            echo "### Pull requests in this release"
+            echo
+            gh pr list --state merged --base "${GITHUB_REF_NAME:-main}" --limit 200 \
+              --json number,title,author,mergedAt \
+              --jq "[ .[] | select(.mergedAt > \"$since\") ] | .[] | \"- \(.title) (#\(.number) by @\(.author.login))\""
+            if [ -n "$compare" ]; then
+              echo
+              echo "**Full diff:** https://github.com/${{ github.repository }}/compare/${compare}"
+            fi
+          } >> release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          ARTEFACTS: ${{ inputs.artefact-paths }}
+        run: |
+          set -euo pipefail
+          assets=()
+          while IFS= read -r glob; do
+            [ -z "$glob" ] && continue
+            for f in $glob; do
+              [ -e "$f" ] && assets+=( "$f" )
+            done
+          done <<< "$ARTEFACTS"
+          gh release create "v${VERSION}" \
+            --title "v${VERSION}" \
+            --notes-file release-notes.md \
+            "${assets[@]}"
+
+      - name: Delete release branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: git push origin --delete "$HEAD_REF" || true

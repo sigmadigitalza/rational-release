@@ -1,0 +1,15 @@
+# Example consumer wrapper. Drop into your repo as
+# .github/workflows/validate-pr.yml.
+
+name: Validate PR
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  title:
+    uses: sigmadigitalza/rational-release/.github/workflows/validate-pr.yml@v1
+    with:
+      # Report-only by default. Set gate: true to make this a required check.
+      gate: false

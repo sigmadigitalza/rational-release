@@ -1,0 +1,27 @@
+# Publishes the rational-release CLI to JSR on every push of a `v*`
+# tag. The tag is created by .github/workflows/cut-release.yml after a
+# release/* PR is merged.
+#
+# Requires the @sigmadigitalza scope to exist on jsr.io and to be linked
+# to this GitHub repo (handled in jsr.io's UI on first publish). OIDC
+# means no token is needed.
+
+name: Publish to JSR
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno publish

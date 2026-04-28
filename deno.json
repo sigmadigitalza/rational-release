@@ -1,0 +1,24 @@
+{
+  "name": "@sigmadigitalza/rational-release",
+  "version": "0.0.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./cli/mod.ts"
+  },
+  "publish": {
+    "include": ["cli/", "README.md", "LICENSE", "deno.json"],
+    "exclude": ["cli/*_test.ts"]
+  },
+  "tasks": {
+    "test": "deno test --allow-read --allow-write cli/",
+    "lint": "deno lint cli/",
+    "check": "deno check cli/mod.ts",
+    "ci": "deno task lint && deno task check && deno task test"
+  },
+  "lint": {
+    "include": ["cli/"]
+  },
+  "fmt": {
+    "include": ["cli/"]
+  }
+}
