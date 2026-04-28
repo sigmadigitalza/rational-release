@@ -25,6 +25,7 @@ import { highestBump } from "./conventional.ts";
 import { nextVersion } from "./version.ts";
 import { readManifestVersion, writeManifestVersion } from "./manifest.ts";
 import {
+  bootstrapTemplate,
   bucketPrs,
   extractSection,
   finaliseUnreleased,
@@ -47,8 +48,10 @@ Subcommands:
       Update the manifest's version field in place. Preserves indentation
       and trailing newline.
 
-  changelog-generate <prs.json> <changelog.md>
+  changelog-generate <prs.json> <changelog.md> [--bootstrap]
       Rewrite the [Unreleased] section in place from merged PRs.
+      With --bootstrap, create a Keep-a-Changelog skeleton if the
+      file doesn't exist yet.
 
   changelog-finalise <changelog.md> <version> [--date YYYY-MM-DD]
       Promote [Unreleased] to [version] - date and prepend a fresh empty
@@ -131,13 +134,23 @@ async function cmdSetVersion(args: string[]): Promise<void> {
 }
 
 async function cmdChangelogGenerate(args: string[]): Promise<void> {
+  const bootstrap = takeFlag(args, "--bootstrap");
   const [prsPath, changelogPath] = args;
   if (!prsPath || !changelogPath) {
-    console.error("usage: changelog-generate <prs.json> <changelog.md>");
+    console.error("usage: changelog-generate <prs.json> <changelog.md> [--bootstrap]");
     Deno.exit(2);
   }
   const prs = JSON.parse(await Deno.readTextFile(prsPath));
-  const changelog = await Deno.readTextFile(changelogPath);
+  let changelog: string;
+  try {
+    changelog = await Deno.readTextFile(changelogPath);
+  } catch (err) {
+    if (err instanceof Deno.errors.NotFound && bootstrap) {
+      changelog = bootstrapTemplate();
+    } else {
+      throw err;
+    }
+  }
   const buckets = bucketPrs(prs);
   const body = renderUnreleased(buckets);
   const updated = rewriteUnreleased(changelog, body);

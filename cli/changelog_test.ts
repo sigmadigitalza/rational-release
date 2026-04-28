@@ -1,5 +1,6 @@
 import { deepStrictEqual as equal, throws } from "node:assert/strict";
 import {
+  bootstrapTemplate,
   bucketPrs,
   extractSection,
   finaliseUnreleased,
@@ -166,4 +167,17 @@ Deno.test("extractSection: returns body of named version", () => {
 
 Deno.test("extractSection: missing version → empty string", () => {
   eq(extractSection("# Changelog\n\n## [Unreleased]\n", "9.9.9"), "");
+});
+
+Deno.test("bootstrapTemplate: produces a valid Keep-a-Changelog skeleton", () => {
+  const template = bootstrapTemplate();
+  // Must contain the canonical header and an empty [Unreleased] section
+  // that rewriteUnreleased can target.
+  if (!template.includes("# Changelog")) throw new Error("Missing top-level header");
+  if (!template.includes("## [Unreleased]")) throw new Error("Missing [Unreleased] section");
+
+  // Round-trip: rewriteUnreleased should accept the template without throwing.
+  const rewritten = rewriteUnreleased(template, "### Added\n\n- a thing\n");
+  if (!rewritten.includes("- a thing")) throw new Error("rewriteUnreleased did not apply");
+  if (!rewritten.includes("## [Unreleased]")) throw new Error("[Unreleased] header lost");
 });

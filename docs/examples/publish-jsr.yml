@@ -1,0 +1,34 @@
+# Example consumer publish workflow — fires after `Cut Release`
+# completes successfully and publishes the freshly-tagged version to JSR.
+#
+# Why not `on: push: tags: [v*]`? GitHub does not trigger downstream
+# `push` workflows from tags pushed by the default GITHUB_TOKEN (loop
+# prevention), so a `push: tags` trigger never fires after cut-release.
+# `workflow_run` observes the cut workflow directly and is allowed to
+# fire.
+#
+# Drop into your repo as .github/workflows/publish-jsr.yml. Make sure
+# the workflow name in `workflows:` below matches the `name:` in the
+# wrapper that calls cut-release.yml (default in our examples: "Cut Release").
+
+name: Publish to JSR
+
+on:
+  workflow_run:
+    workflows: ["Cut Release"]
+    types: [completed]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno publish
