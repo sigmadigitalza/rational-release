@@ -173,6 +173,8 @@ rational-release set-version        <manifest> <version> [--jsonpath …]
 rational-release changelog-generate <prs.json> <changelog.md> [--bootstrap]
 rational-release changelog-finalise <changelog.md> <version> [--date YYYY-MM-DD]
 rational-release extract-section    <changelog.md> <version>
+rational-release changelog-html     <changelog.md> <output.html>
+rational-release validate-title     <title> [--allowed-types …] [--require-scope]
 ```
 
 Once published to JSR:

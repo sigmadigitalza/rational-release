@@ -48,27 +48,9 @@ jobs:
           CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
         run: |
           set -euo pipefail
-          # Use the CLI's parser for behavioural parity with bump computation.
-          # We call a tiny inline TS that imports parseSubject and prints a JSON verdict.
-          cat > /tmp/validate.ts <<'EOF'
-          import { parseSubject } from "https://raw.githubusercontent.com/sigmadigitalza/rational-release/__BASE_REF__/cli/conventional.ts";
-          const [title, allowedRaw, requireScope] = Deno.args;
-          const allowed = new Set(allowedRaw.split(",").map((s) => s.trim()));
-          const parsed = parseSubject(title);
-          const result = { ok: false, reason: "" as string, parsed };
-          if (!parsed) {
-            result.reason = "Title does not match `type(scope)?!?: description`.";
-          } else if (!allowed.has(parsed.type)) {
-            result.reason = `Type \`${parsed.type}\` is not in the allowed list (${allowedRaw}).`;
-          } else if (requireScope === "true" && !parsed.scope) {
-            result.reason = "Scope is required (`type(scope): ...`).";
-          } else {
-            result.ok = true;
-          }
-          console.log(JSON.stringify(result));
-          EOF
-          sed -i "s|__BASE_REF__|${{ inputs.base-ref }}|g" /tmp/validate.ts
-          verdict=$(deno run --allow-read /tmp/validate.ts "$PR_TITLE" "$ALLOWED" "$REQUIRE_SCOPE")
+          flags=( --allowed-types "$ALLOWED" )
+          [ "$REQUIRE_SCOPE" = "true" ] && flags+=( --require-scope )
+          verdict=$(deno run --allow-read "$CLI" validate-title "$PR_TITLE" "${flags[@]}")
           ok=$(echo "$verdict" | jq -r '.ok')
           reason=$(echo "$verdict" | jq -r '.reason')
 

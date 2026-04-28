@@ -236,6 +236,16 @@ deno run -A jsr:@sigmadigitalza/rational-release \
           <td>Print the body of a single <code>[X.Y.Z]</code> section to stdout. Useful for
             release-notes bodies.</td>
         </tr>
+        <tr>
+          <td><code>changelog-html</code></td>
+          <td>Convert a Keep-a-Changelog Markdown file to a standalone HTML page using the
+            docs-site template.</td>
+        </tr>
+        <tr>
+          <td><code>validate-title</code></td>
+          <td>Validate a PR title against the conventional-commits spec. Prints a JSON
+            verdict (<code>{ ok, reason, parsed }</code>). Used by <code>validate-pr.yml</code>.</td>
+        </tr>
       </tbody>
     </table>
 

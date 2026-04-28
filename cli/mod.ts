@@ -8,6 +8,8 @@
  *     changelog-generate  Rewrite the [Unreleased] section from merged PRs.
  *     changelog-finalise  Promote [Unreleased] to [X.Y.Z] - date.
  *     extract-section     Print the body of a single [version] section.
+ *     changelog-html      Convert a changelog to an HTML docs page.
+ *     validate-title      Validate a PR title against conventional commits.
  *
  * Each subcommand reads explicit arguments — no env-var magic. Designed
  * to be invoked from GitHub Actions reusable workflows that wrap them.
@@ -35,6 +37,8 @@ import {
   renderUnreleased,
   rewriteUnreleased,
 } from "./changelog.ts";
+import { generateChangelogHtml } from "./changelog_html.ts";
+import { validateTitle } from "./validate.ts";
 
 const USAGE = `\
 rational-release <subcommand> [args...]
@@ -62,6 +66,13 @@ Subcommands:
 
   extract-section <changelog.md> <version>
       Print the body of [version] to stdout. Empty if missing.
+
+  changelog-html <changelog.md> <output.html>
+      Convert a Keep-a-Changelog Markdown file to an HTML docs page.
+
+  validate-title <title> [--allowed-types feat,fix,...] [--require-scope]
+      Validate a PR title against the conventional-commits spec.
+      Prints a JSON verdict: { ok, reason, parsed }.
 `;
 
 async function readStdin(): Promise<string> {
@@ -185,6 +196,31 @@ async function cmdExtractSection(args: string[]): Promise<void> {
   process.stdout.write(body);
 }
 
+async function cmdChangelogHtml(args: string[]): Promise<void> {
+  const [src, dst] = args;
+  if (!src || !dst) {
+    console.error("usage: changelog-html <changelog.md> <output.html>");
+    process.exit(2);
+  }
+  await generateChangelogHtml(src, dst);
+}
+
+function cmdValidateTitle(args: string[]): void {
+  const allowedRaw = takeOption(args, "--allowed-types") ??
+    "feat,fix,docs,style,refactor,perf,test,build,ci,chore,revert";
+  const requireScope = takeFlag(args, "--require-scope");
+  const [title] = args;
+  if (!title) {
+    console.error(
+      "usage: validate-title <title> [--allowed-types feat,fix,...] [--require-scope]",
+    );
+    process.exit(2);
+  }
+  const allowed = allowedRaw.split(",").map((s) => s.trim());
+  const result = validateTitle(title, allowed, requireScope);
+  console.log(JSON.stringify(result));
+}
+
 async function main(): Promise<void> {
   const [sub, ...rest] = process.argv.slice(2);
   switch (sub) {
@@ -205,6 +241,12 @@ async function main(): Promise<void> {
       return;
     case "extract-section":
       await cmdExtractSection(rest);
+      return;
+    case "changelog-html":
+      await cmdChangelogHtml(rest);
+      return;
+    case "validate-title":
+      cmdValidateTitle(rest);
       return;
     case "--help":
     case "-h":
