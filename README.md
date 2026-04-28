@@ -79,6 +79,15 @@ Your repo also needs:
   format with a `## [Unreleased]` section). Set `bootstrap-changelog: false`
   if you'd rather provide your own.
 
+### Cloud agents and JSR
+
+If you run releases from a cloud agent that operates behind a network
+allowlist (GitHub-hosted Copilot agents, sandboxed CI runners, etc.),
+make sure the agent can reach `jsr.io` so it can resolve and run the
+CLI. For pinned-tag usage you'll also want `raw.githubusercontent.com`.
+On unrestricted GitHub Actions runners this is already the default, so
+no change is needed.
+
 ### Triggering JSR / npm publish from `cut-release`
 
 Tags pushed by `cut-release` use the default `GITHUB_TOKEN`, and GitHub
@@ -153,7 +162,9 @@ PR.
 
 ## CLI
 
-The Deno CLI underneath the workflows is also usable directly. Subcommands:
+The CLI underneath the workflows is also usable directly. It uses only
+`node:*` standard-library imports so it runs on Deno, Node, and Bun
+without modification. Subcommands:
 
 ```
 rational-release next-version       <manifest> [--jsonpath …] [--pre-1.0-cap] [--commits-file FILE]
@@ -167,7 +178,14 @@ rational-release extract-section    <changelog.md> <version>
 Once published to JSR:
 
 ```sh
+# Deno
 deno run -A jsr:@sigmadigitalza/rational-release next-version deno.json --commits-file commits.txt
+
+# Node (>=22)
+npx jsr run @sigmadigitalza/rational-release next-version package.json --commits-file commits.txt
+
+# Bun
+bunx jsr run @sigmadigitalza/rational-release next-version package.json --commits-file commits.txt
 ```
 
 ## Versioning

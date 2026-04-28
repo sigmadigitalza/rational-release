@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tutorial — rational-release</title>
+  <meta name="description" content="Zero-to-hero: wire rational-release into a fresh Deno repo and ship your first version.">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="./" class="brand">rational-release</a>
+      <nav class="nav">
+        <a href="./">Overview</a>
+        <a href="tutorial.html" class="current">Tutorial</a>
+        <a href="advanced.html">Advanced</a>
+        <a href="https://github.com/sigmadigitalza/rational-release">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <h1>Zero to hero</h1>
+    <p class="lead">
+      Wire <code>rational-release</code> into a fresh repository and ship your first tagged release.
+      End to end, this walkthrough takes about ten minutes &mdash; most of which is GitHub
+      catching up with you.
+    </p>
+
+    <div class="toc">
+      <strong>What you&rsquo;ll do</strong>
+      <ol>
+        <li><a href="#prereqs">Check the prerequisites</a></li>
+        <li><a href="#repo">Create a repo with a manifest and CHANGELOG</a></li>
+        <li><a href="#workflows">Drop in the three wrapper workflows</a></li>
+        <li><a href="#permissions">Allow Actions to open PRs</a></li>
+        <li><a href="#first-pr">Land your first feature commit</a></li>
+        <li><a href="#release-pr">Merge the release PR</a></li>
+        <li><a href="#publish">Wire up automatic publishing</a></li>
+      </ol>
+    </div>
+
+    <h2 id="prereqs">1 &middot; Prerequisites</h2>
+
+    <ul>
+      <li>A GitHub repository you own (private or public).</li>
+      <li>A JSON manifest with a <code>version</code> field &mdash; <code>deno.json</code>,
+        <code>package.json</code>, or <code>jsr.json</code> all work.</li>
+      <li>Squash-merge enabled on the repo. The release-PR workflow assumes
+        <code>type(scope): description</code>-shaped subjects, which squash-merge produces from
+        the PR title.</li>
+    </ul>
+
+    <p>
+      You don&rsquo;t need to install anything locally. The CLI ships as a JSR module
+      and runs from the workflows directly.
+    </p>
+
+    <h2 id="repo">2 &middot; Set up the repo</h2>
+
+    <p>Create a <code>deno.json</code> with a starting version:</p>
+
+<pre><code>{
+  <span class="tok-s">"name"</span>: <span class="tok-s">"@you/widget"</span>,
+  <span class="tok-s">"version"</span>: <span class="tok-s">"0.0.0"</span>
+}</code></pre>
+
+    <p>
+      A <code>CHANGELOG.md</code> is optional &mdash; rational-release auto-bootstraps a
+      Keep-a-Changelog skeleton on first run. If you&rsquo;d rather provide your own,
+      drop a file in with at least:
+    </p>
+
+<pre><code># Changelog
+
+## [Unreleased]
+
+### Added
+### Changed
+### Fixed
+### Removed</code></pre>
+
+    <h2 id="workflows">3 &middot; Drop in the workflows</h2>
+
+    <p>Three thin wrappers under <code>.github/workflows/</code>. None take more than a few lines.</p>
+
+    <h3>validate-pr.yml</h3>
+    <p>Reports on (or gates) PR titles against the conventional-commits spec.</p>
+
+<pre><code><span class="tok-k">name</span>: <span class="tok-s">Validate PR</span>
+<span class="tok-k">on</span>:
+  <span class="tok-k">pull_request</span>:
+    <span class="tok-k">types</span>: [opened, edited, synchronize, reopened]
+<span class="tok-k">jobs</span>:
+  <span class="tok-k">title</span>:
+    <span class="tok-k">uses</span>: <span class="tok-s">sigmadigitalza/rational-release/.github/workflows/validate-pr.yml@v1</span>
+    <span class="tok-k">with</span>:
+      <span class="tok-k">gate</span>: <span class="tok-s">true</span>  <span class="tok-c"># fail the check on bad titles; default is report-only</span></code></pre>
+
+    <h3>prepare-release.yml</h3>
+    <p>
+      Fires on every push to <code>main</code>. Computes the next semver, regenerates
+      <code>[Unreleased]</code>, applies the bump to the manifest, force-pushes a
+      <code>release/vX.Y.Z</code> branch, and opens (or updates) a <em>Release vX.Y.Z</em> PR.
+    </p>
+
+<pre><code><span class="tok-k">name</span>: <span class="tok-s">Prepare Release</span>
+<span class="tok-k">on</span>:
+  <span class="tok-k">push</span>:
+    <span class="tok-k">branches</span>: [main]
+<span class="tok-k">permissions</span>:
+  <span class="tok-k">contents</span>: write
+  <span class="tok-k">pull-requests</span>: write
+<span class="tok-k">jobs</span>:
+  <span class="tok-k">prepare</span>:
+    <span class="tok-k">uses</span>: <span class="tok-s">sigmadigitalza/rational-release/.github/workflows/prepare-release.yml@v1</span>
+    <span class="tok-k">with</span>:
+      <span class="tok-k">pre1-cap</span>: <span class="tok-s">true</span>          <span class="tok-c"># while &lt; 1.0, treat feat!: as minor</span>
+      <span class="tok-k">pre-tasks</span>: |
+        deno task test</code></pre>
+
+    <h3>cut-release.yml</h3>
+    <p>
+      Fires when a <code>release/v*</code> PR is merged. Tags <code>vX.Y.Z</code>, finalises the
+      changelog, and opens a GitHub Release.
+    </p>
+
+<pre><code><span class="tok-k">name</span>: <span class="tok-s">Cut Release</span>
+<span class="tok-k">on</span>:
+  <span class="tok-k">pull_request</span>:
+    <span class="tok-k">types</span>: [closed]
+    <span class="tok-k">branches</span>: [main]
+<span class="tok-k">permissions</span>:
+  <span class="tok-k">contents</span>: write
+  <span class="tok-k">pull-requests</span>: read
+<span class="tok-k">jobs</span>:
+  <span class="tok-k">cut</span>:
+    <span class="tok-k">uses</span>: <span class="tok-s">sigmadigitalza/rational-release/.github/workflows/cut-release.yml@v1</span></code></pre>
+
+    <h2 id="permissions">4 &middot; Allow Actions to open PRs</h2>
+
+    <p>
+      In <strong>Settings → Actions → General → Workflow permissions</strong>:
+    </p>
+    <ul>
+      <li>Pick <em>Read and write permissions</em>.</li>
+      <li>Tick <em>Allow GitHub Actions to create and approve pull requests</em>.</li>
+    </ul>
+
+    <p>
+      Without that second box, <code>prepare-release</code> will hit a <code>403</code> when it
+      tries to open the release PR. The error is unambiguous when it happens.
+    </p>
+
+    <h2 id="first-pr">5 &middot; Land your first feature</h2>
+
+    <p>Open a PR with a conventional-commit-shaped title:</p>
+
+<pre><code>feat: add &lt;something useful&gt;</code></pre>
+
+    <p>
+      Squash-merge it. The squash commit subject becomes
+      <code>feat: add &lt;something useful&gt; (#1)</code>, which is what
+      <code>prepare-release</code> reads on the next push to main.
+    </p>
+
+    <p>Within a minute or so, you&rsquo;ll see:</p>
+
+    <ul>
+      <li>A <code>release/v0.1.0</code> branch (or <code>v1.0.0</code> if you set
+        <code>pre1-cap: false</code> and pushed a breaking change).</li>
+      <li>A <em>Release v0.1.0</em> PR with the manifest bump and a populated
+        <code>[Unreleased]</code> section.</li>
+    </ul>
+
+    <h2 id="release-pr">6 &middot; Merge the release PR</h2>
+
+    <p>
+      Review the PR. If something looks off, push more commits to <code>main</code> &mdash;
+      <code>prepare-release</code> will force-update the release branch on each push and the
+      PR will reflect the new state.
+    </p>
+
+    <p>
+      When you&rsquo;re happy, squash-merge it. <code>cut-release</code> picks it up:
+    </p>
+
+    <ul>
+      <li>Promotes <code>[Unreleased]</code> &rarr; <code>[0.1.0] - YYYY-MM-DD</code> in the changelog.</li>
+      <li>Tags <code>v0.1.0</code> on <code>main</code>.</li>
+      <li>Creates a GitHub Release whose body is the <code>[0.1.0]</code> section.</li>
+    </ul>
+
+    <p>That&rsquo;s a complete release cycle. Every subsequent feature follows the same path.</p>
+
+    <h2 id="publish">7 &middot; Add automatic publishing</h2>
+
+    <p>
+      Tags pushed by <code>cut-release</code> use the default <code>GITHUB_TOKEN</code>, and GitHub
+      intentionally does not fire downstream <code>push</code> workflows from those tags. A
+      naïve <code>on: push: tags: [v*]</code> publish workflow will never run.
+    </p>
+
+    <p>Trigger your publish workflow with <code>workflow_run</code> instead:</p>
+
+<pre><code><span class="tok-k">name</span>: <span class="tok-s">Publish to JSR</span>
+<span class="tok-k">on</span>:
+  <span class="tok-k">workflow_run</span>:
+    <span class="tok-k">workflows</span>: [<span class="tok-s">"Cut Release"</span>]
+    <span class="tok-k">types</span>: [completed]
+<span class="tok-k">permissions</span>:
+  <span class="tok-k">contents</span>: read
+  <span class="tok-k">id-token</span>: write
+<span class="tok-k">jobs</span>:
+  <span class="tok-k">publish</span>:
+    <span class="tok-k">if</span>: <span class="tok-s">${{ github.event.workflow_run.conclusion == 'success' }}</span>
+    <span class="tok-k">runs-on</span>: <span class="tok-s">ubuntu-latest</span>
+    <span class="tok-k">steps</span>:
+      - <span class="tok-k">uses</span>: <span class="tok-s">actions/checkout@v4</span>
+      - <span class="tok-k">uses</span>: <span class="tok-s">denoland/setup-deno@v2</span>
+        <span class="tok-k">with</span>: { <span class="tok-k">deno-version</span>: <span class="tok-s">v2.x</span> }
+      - <span class="tok-k">run</span>: <span class="tok-s">deno publish</span></code></pre>
+
+    <p>
+      The <code>workflows:</code> entry must match the <code>name:</code> field in
+      <code>cut-release.yml</code> exactly &mdash; <em>Cut Release</em> in the example above.
+    </p>
+
+    <hr>
+
+    <h2>You&rsquo;re done</h2>
+
+    <p>
+      From here, the loop is: write conventional-commit PR titles, squash-merge them,
+      review the auto-opened release PR, squash-merge it.
+      Everything else &mdash; semver bump, changelog generation, tag, release notes,
+      publish &mdash; runs itself.
+    </p>
+
+    <p>
+      For artefacts, mirror paths, custom pre-tasks, or fitting the workflows around
+      a multi-package repo, head to the <a href="advanced.html">advanced examples</a>.
+    </p>
+
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/sigmadigitalza/rational-release">GitHub</a>
+      &middot;
+      <a href="https://jsr.io/@sigmadigitalza/rational-release">JSR</a>
+      &middot;
+      <a href="https://github.com/sigmadigitalza/rational-release/blob/main/CHANGELOG.md">Changelog</a>
+    </p>
+  </footer>
+
+</body>
+</html>

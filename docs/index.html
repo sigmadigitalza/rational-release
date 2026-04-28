@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>rational-release — trunk-based releases for Deno, Node, and Bun</title>
+  <meta name="description" content="Reusable GitHub Actions workflows and a thin CLI for trunk-based, conventional-commit-driven releases with a release-PR gate.">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="./" class="brand">rational-release</a>
+      <nav class="nav">
+        <a href="./" class="current">Overview</a>
+        <a href="tutorial.html">Tutorial</a>
+        <a href="advanced.html">Advanced</a>
+        <a href="https://github.com/sigmadigitalza/rational-release">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="hero">
+    <h1>rational-release</h1>
+    <p class="tagline">
+      Trunk-based releases for Deno, Node, and Bun projects.
+      Conventional commits in, a release PR out, a tagged GitHub Release on merge.
+      No bots to install, no secrets to manage.
+    </p>
+    <div class="hero-ctas">
+      <a class="btn btn-primary" href="tutorial.html">Get started →</a>
+      <a class="btn" href="https://github.com/sigmadigitalza/rational-release">View on GitHub</a>
+    </div>
+  </section>
+
+  <main class="container-wide">
+
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-step-title">Validate PR</div>
+        <div class="flow-step-body">conventional-commit title check, report-only or gating</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="flow-step-title">Prepare Release</div>
+        <div class="flow-step-body">test, lint, build, force-push <code>release/v…</code>, open release PR</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="flow-step-title">Cut Release</div>
+        <div class="flow-step-body">tag, finalise CHANGELOG, build artefacts, GitHub Release</div>
+      </div>
+    </div>
+
+    <h2>Why this exists</h2>
+
+    <p class="lead">
+      We wanted the shape of <a href="https://github.com/googleapis/release-please">release-please</a> &mdash;
+      a release PR you can review and squash-merge &mdash; but with the prepare commit fully under our control.
+      Re-build a search index, mirror the changelog into a docs page, run an integration suite as a gate,
+      attach custom artefacts to the GitHub Release. All in plain GitHub Actions, no external app.
+    </p>
+
+    <div class="features">
+      <div class="feature">
+        <h3>Three reusable workflows</h3>
+        <p>
+          <code>validate-pr</code>, <code>prepare-release</code>, and <code>cut-release</code> &mdash;
+          drop in thin wrappers and you&rsquo;re done.
+        </p>
+      </div>
+      <div class="feature">
+        <h3>Conventional commits</h3>
+        <p>
+          <code>feat:</code>, <code>fix:</code>, <code>!:</code> on commit subjects drive the next semver bump.
+          Pre-1.0 cap is one input flip.
+        </p>
+      </div>
+      <div class="feature">
+        <h3>Keep-a-Changelog</h3>
+        <p>
+          <code>[Unreleased]</code> is regenerated from merged PR titles on every push to main.
+          Cut-release promotes it to <code>[X.Y.Z] - date</code>.
+        </p>
+      </div>
+      <div class="feature">
+        <h3>Multi-runtime CLI</h3>
+        <p>
+          The Deno CLI underneath uses only <code>node:*</code> standard-library imports,
+          so it runs on Deno, Node, and Bun unchanged.
+        </p>
+      </div>
+      <div class="feature">
+        <h3>Custom pre-tasks</h3>
+        <p>
+          <code>pre-tasks</code> runs your test/lint/build/regenerate steps before the release PR is opened.
+          Failures keep the PR closed.
+        </p>
+      </div>
+      <div class="feature">
+        <h3>Custom artefacts</h3>
+        <p>
+          <code>artefact-task</code> runs after the tag is cut. Glob with <code>artefact-paths</code>
+          and the files attach to the GitHub Release.
+        </p>
+      </div>
+    </div>
+
+    <h2>Quick start</h2>
+
+    <p>
+      Drop three thin wrapper workflows into <code>.github/workflows/</code>.
+      The minimum for a Deno project:
+    </p>
+
+<pre><code><span class="tok-c"># .github/workflows/validate-pr.yml</span>
+<span class="tok-k">on</span>: { <span class="tok-k">pull_request</span>: { <span class="tok-k">types</span>: [opened, edited, synchronize, reopened] } }
+<span class="tok-k">jobs</span>:
+  <span class="tok-k">title</span>:
+    <span class="tok-k">uses</span>: <span class="tok-s">sigmadigitalza/rational-release/.github/workflows/validate-pr.yml@v1</span></code></pre>
+
+<pre><code><span class="tok-c"># .github/workflows/prepare-release.yml</span>
+<span class="tok-k">on</span>: { <span class="tok-k">push</span>: { <span class="tok-k">branches</span>: [main] } }
+<span class="tok-k">permissions</span>: { <span class="tok-k">contents</span>: write, <span class="tok-k">pull-requests</span>: write }
+<span class="tok-k">jobs</span>:
+  <span class="tok-k">prepare</span>:
+    <span class="tok-k">uses</span>: <span class="tok-s">sigmadigitalza/rational-release/.github/workflows/prepare-release.yml@v1</span>
+    <span class="tok-k">with</span>:
+      <span class="tok-k">pre-tasks</span>: |
+        deno task test</code></pre>
+
+<pre><code><span class="tok-c"># .github/workflows/cut-release.yml</span>
+<span class="tok-k">on</span>: { <span class="tok-k">pull_request</span>: { <span class="tok-k">types</span>: [closed], <span class="tok-k">branches</span>: [main] } }
+<span class="tok-k">permissions</span>: { <span class="tok-k">contents</span>: write, <span class="tok-k">pull-requests</span>: read }
+<span class="tok-k">jobs</span>:
+  <span class="tok-k">cut</span>:
+    <span class="tok-k">uses</span>: <span class="tok-s">sigmadigitalza/rational-release/.github/workflows/cut-release.yml@v1</span></code></pre>
+
+    <p>
+      That&rsquo;s the floor. The
+      <a href="tutorial.html">zero-to-hero tutorial</a> walks through wiring it up to a real repo end-to-end,
+      and the <a href="advanced.html">advanced examples</a> cover artefacts, mirror paths, custom pre-tasks,
+      and triggering JSR / npm publishes.
+    </p>
+
+    <div class="callout">
+      <strong>Heads-up.</strong> Tags pushed by <code>cut-release</code> use the default
+      <code>GITHUB_TOKEN</code>. GitHub intentionally does not fire downstream <code>push</code> workflows
+      from those tags, so a naïve <code>on: push: tags: [v*]</code> publish workflow will never run.
+      Use <code>workflow_run</code> on <em>Cut Release</em> instead &mdash;
+      see <a href="advanced.html#publish">the publish trigger pattern</a>.
+    </div>
+
+    <h2>License</h2>
+    <p><a href="https://github.com/sigmadigitalza/rational-release/blob/main/LICENSE">MIT</a>.</p>
+
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/sigmadigitalza/rational-release">GitHub</a>
+      &middot;
+      <a href="https://jsr.io/@sigmadigitalza/rational-release">JSR</a>
+      &middot;
+      <a href="https://github.com/sigmadigitalza/rational-release/blob/main/CHANGELOG.md">Changelog</a>
+    </p>
+  </footer>
+
+</body>
+</html>
