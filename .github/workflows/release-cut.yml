@@ -1,0 +1,21 @@
+# Wrapper: cut a release using our own reusable workflow.
+# Dogfoods rational-release/cut-release.yml against this repo.
+# JSR publishing remains in publish.yml — it triggers on the tag push
+# this workflow creates.
+
+name: Cut Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cut:
+    uses: ./.github/workflows/cut-release.yml
+    with:
+      base-ref: ${{ github.sha }}
