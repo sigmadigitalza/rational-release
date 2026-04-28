@@ -41,6 +41,10 @@ on:
       changelog-path:
         type: string
         default: CHANGELOG.md
+      bootstrap-changelog:
+        description: "Auto-create a Keep-a-Changelog skeleton at changelog-path if it doesn't exist."
+        type: boolean
+        default: true
       base-ref:
         description: "Tag/branch of sigmadigitalza/rational-release to use for the CLI."
         type: string
@@ -187,7 +191,12 @@ jobs:
         env:
           CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
           CHANGELOG: ${{ inputs.changelog-path }}
-        run: deno run --allow-read --allow-write "$CLI" changelog-generate prs.json "$CHANGELOG"
+          BOOTSTRAP: ${{ inputs.bootstrap-changelog }}
+        run: |
+          set -euo pipefail
+          flags=()
+          [ "$BOOTSTRAP" = "true" ] && flags+=( --bootstrap )
+          deno run --allow-read --allow-write "$CLI" changelog-generate prs.json "$CHANGELOG" "${flags[@]}"
 
       - name: Mirror changelog
         if: steps.gate.outputs.proceed == 'true' && inputs.mirror-paths != ''

@@ -73,10 +73,21 @@ jobs:
 
 Your repo also needs:
 
-- A `CHANGELOG.md` at the root, with a `## [Unreleased]` section already in
-  it (Keep-a-Changelog format).
 - A version field in `deno.json` (or another JSON manifest, addressed via
   `manifest-jsonpath`).
+- A `CHANGELOG.md` is created on the first run if missing (Keep-a-Changelog
+  format with a `## [Unreleased]` section). Set `bootstrap-changelog: false`
+  if you'd rather provide your own.
+
+### Triggering JSR / npm publish from `cut-release`
+
+Tags pushed by `cut-release` use the default `GITHUB_TOKEN`, and GitHub
+intentionally [does not fire downstream `push` workflows][1] from those
+tags. A naïve `on: push: tags: [v*]` publish workflow won't run after a
+release is cut. Trigger your publish workflow with `workflow_run` on
+`Cut Release` completion instead — see [`docs/examples/publish-jsr.yml`](docs/examples/publish-jsr.yml).
+
+[1]: https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow
 
 ## Configuration reference
 
@@ -92,6 +103,7 @@ Your repo also needs:
 | `commit-paths` | _(empty)_ | Extra paths to `git add` into the prep commit. |
 | `mirror-paths` | _(empty)_ | `src:dst` pairs to copy after changelog generation. |
 | `changelog-path` | `CHANGELOG.md` | Path to the canonical changelog. |
+| `bootstrap-changelog` | `true` | Auto-create the changelog with a Keep-a-Changelog skeleton if missing. |
 | `base-ref` | `v1` | Tag/branch of this repo to source the CLI from. |
 | `runs-on` | `ubuntu-latest` | Runner label. |
 
@@ -126,7 +138,7 @@ Your repo also needs:
 across all commit subjects:
 
 - `<type>!:` _or_ `<type>(scope)!:` → **major** (downgraded to minor under
-  `pre-1.0-cap`).
+  `pre1-cap`).
 - `feat:` → **minor**.
 - `fix:` / `perf:` → **patch**.
 - Anything else → no bump.
@@ -147,7 +159,7 @@ The Deno CLI underneath the workflows is also usable directly. Subcommands:
 rational-release next-version       <manifest> [--jsonpath …] [--pre-1.0-cap] [--commits-file FILE]
 rational-release read-version       <manifest> [--jsonpath …]
 rational-release set-version        <manifest> <version> [--jsonpath …]
-rational-release changelog-generate <prs.json> <changelog.md>
+rational-release changelog-generate <prs.json> <changelog.md> [--bootstrap]
 rational-release changelog-finalise <changelog.md> <version> [--date YYYY-MM-DD]
 rational-release extract-section    <changelog.md> <version>
 ```
