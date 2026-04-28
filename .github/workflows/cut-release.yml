@@ -38,9 +38,10 @@ on:
         description: "Newline-separated globs to attach to the GitHub Release."
         type: string
         default: ""
-      base-ref:
+      cli:
+        description: "Source for the rational-release CLI. A JSR specifier (default) or a local filesystem path. Use a path to dogfood an in-tree CLI."
         type: string
-        default: v1
+        default: "jsr:@sigmadigitalza/rational-release@^1"
       runs-on:
         type: string
         default: ubuntu-latest
@@ -93,7 +94,7 @@ jobs:
           MANIFEST: ${{ inputs.manifest-path }}
           JSONPATH: ${{ inputs.manifest-jsonpath }}
           VERSION: ${{ steps.version.outputs.version }}
-          CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
+          CLI: ${{ inputs.cli }}
         run: |
           set -euo pipefail
           actual=$(deno run --allow-read "$CLI" read-version "$MANIFEST" --jsonpath "$JSONPATH")
@@ -123,7 +124,7 @@ jobs:
 
       - name: Finalise changelog
         env:
-          CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
+          CLI: ${{ inputs.cli }}
           CHANGELOG: ${{ inputs.changelog-path }}
           VERSION: ${{ steps.version.outputs.version }}
         run: deno run --allow-read --allow-write "$CLI" changelog-finalise "$CHANGELOG" "$VERSION"
@@ -143,7 +144,7 @@ jobs:
       - name: Extract release notes for this version
         id: notes
         env:
-          CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
+          CLI: ${{ inputs.cli }}
           CHANGELOG: ${{ inputs.changelog-path }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |

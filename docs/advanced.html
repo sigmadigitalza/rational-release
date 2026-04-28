@@ -244,8 +244,8 @@ deno run -A jsr:@sigmadigitalza/rational-release \
     <p>
       If you run releases from a cloud agent that operates behind a network allowlist
       (GitHub-hosted Copilot agents, sandboxed CI runners), make sure the agent can reach
-      <code>jsr.io</code> so it can resolve and run the CLI. For pinned-tag usage you&rsquo;ll
-      also want <code>raw.githubusercontent.com</code>. On unrestricted GitHub Actions runners
+      <code>jsr.io</code> so it can resolve and run the CLI &mdash; the workflows pull it as
+      <code>jsr:@sigmadigitalza/rational-release</code>. On unrestricted GitHub Actions runners
       this is already the default, so no change is needed.
     </p>
 

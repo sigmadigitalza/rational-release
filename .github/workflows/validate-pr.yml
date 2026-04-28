@@ -25,10 +25,10 @@ on:
         description: "Also validate every commit message in the PR."
         type: boolean
         default: true
-      base-ref:
-        description: "Tag/branch of sigmadigitalza/rational-release to use for the CLI."
+      cli:
+        description: "Source for the rational-release CLI. A JSR specifier (default) or a local filesystem path. Use a path to dogfood an in-tree CLI."
         type: string
-        default: v1
+        default: "jsr:@sigmadigitalza/rational-release@^1"
       runs-on:
         type: string
         default: ubuntu-latest
@@ -58,7 +58,7 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           REQUIRE_SCOPE: ${{ inputs.require-scope }}
           GATE: ${{ inputs.gate }}
-          CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
+          CLI: ${{ inputs.cli }}
         run: |
           set -euo pipefail
           flags=( --from-env PR_TITLE )
@@ -80,7 +80,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REQUIRE_SCOPE: ${{ inputs.require-scope }}
-          CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
+          CLI: ${{ inputs.cli }}
         run: |
           set -euo pipefail
           # Collect commit subjects in the PR range, separated by a marker

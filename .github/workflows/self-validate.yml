@@ -14,4 +14,5 @@ jobs:
     with:
       gate: true
       validate-commits: true
-      base-ref: ${{ github.sha }}
+      # Dogfood the in-tree CLI (the PR's HEAD), not the published JSR version.
+      cli: ./cli/mod.ts
