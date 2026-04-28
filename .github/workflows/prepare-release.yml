@@ -19,8 +19,8 @@ on:
       manifest-jsonpath:
         type: string
         default: $.version
-      pre-1.0-cap:
-        description: "Cap pre-1.0 major bumps to minor."
+      pre1-cap:
+        description: "Cap pre-1.0 major bumps to minor (a `feat!:` on 0.x stays 0.(x+1).0)."
         type: boolean
         default: false
       release-branch-prefix:
@@ -102,7 +102,7 @@ jobs:
         env:
           MANIFEST: ${{ inputs.manifest-path }}
           JSONPATH: ${{ inputs.manifest-jsonpath }}
-          PRE1: ${{ inputs.pre-1.0-cap }}
+          PRE1: ${{ inputs.pre1-cap }}
           CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
         run: |
           set -euo pipefail

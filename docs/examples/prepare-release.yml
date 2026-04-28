@@ -16,7 +16,7 @@ jobs:
     uses: sigmadigitalza/rational-release/.github/workflows/prepare-release.yml@v1
     with:
       # Most projects override only these:
-      pre-1.0-cap: true
+      pre1-cap: true
       pre-tasks: |
         deno task test
         deno task build

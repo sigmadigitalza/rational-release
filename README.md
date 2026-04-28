@@ -46,7 +46,7 @@ jobs:
   prepare:
     uses: sigmadigitalza/rational-release/.github/workflows/prepare-release.yml@v1
     with:
-      pre-1.0-cap: true
+      pre1-cap: true
       pre-tasks: |
         deno task test
 ```
@@ -86,7 +86,7 @@ Your repo also needs:
 |---|---|---|
 | `manifest-path` | `deno.json` | JSON file containing the version. |
 | `manifest-jsonpath` | `$.version` | Dot-path inside the manifest. |
-| `pre-1.0-cap` | `false` | Treat `feat!:` as `minor` while `0.x.y`. |
+| `pre1-cap` | `false` | Treat `feat!:` as `minor` while `0.x.y`. |
 | `release-branch-prefix` | `release/v` | Prefix for the release branch name. |
 | `pre-tasks` | _(empty)_ | Newline-separated shell commands run before changelog gen. |
 | `commit-paths` | _(empty)_ | Extra paths to `git add` into the prep commit. |
