@@ -9,11 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-### Changed
-
-### Fixed
-
-### Removed
+- dogfood CLI in own workflows + bootstrap docs changelog (#14 by @Pushplaybang)
 
 ## [1.1.0] - 2026-04-28
 
