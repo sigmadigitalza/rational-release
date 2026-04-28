@@ -1,0 +1,15 @@
+# Wrapper: validate PR titles using our own reusable workflow.
+# Dogfoods rational-release/validate-pr.yml against this repo.
+
+name: Validate PR
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  title:
+    uses: ./.github/workflows/validate-pr.yml
+    with:
+      gate: false
+      base-ref: ${{ github.sha }}

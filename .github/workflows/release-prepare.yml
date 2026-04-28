@@ -1,0 +1,21 @@
+# Wrapper: prepare a release PR using our own reusable workflow.
+# Dogfoods rational-release/prepare-release.yml against this repo.
+
+name: Prepare Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    uses: ./.github/workflows/prepare-release.yml
+    with:
+      pre1-cap: true
+      base-ref: ${{ github.sha }}
+      pre-tasks: |
+        deno task ci
