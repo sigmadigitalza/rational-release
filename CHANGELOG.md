@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- --next-version attributes pre-tag commits to upcoming release (#17 by @Pushplaybang)
+
 ### Changed
 
-### Fixed
-
-### Removed
+- JSR-source the CLI + rename dogfood wrappers to self-* (#16 by @Pushplaybang)
 
 ## [1.2.0] - 2026-04-28
 
