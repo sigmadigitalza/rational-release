@@ -176,7 +176,7 @@ rational-release changelog-finalise <changelog.md> <version> [--date YYYY-MM-DD]
 rational-release extract-section    <changelog.md> <version>
 rational-release validate-title     [<title>] [--from-env VAR] [--require-scope]
 rational-release validate-commits   [<msg>...] [--commits-file FILE] [--from-env VAR] [--separator SEP]
-rational-release build-changelog    [--output PATH] [--format md|html] [--repo OWNER/REPO] [--preserve-from FILE]
+rational-release build-changelog    [--output PATH] [--format md|html] [--repo OWNER/REPO] [--preserve-from FILE] [--next-version VER] [--next-date YYYY-MM-DD]
 ```
 
 Once published to JSR:
