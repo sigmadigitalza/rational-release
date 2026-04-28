@@ -85,7 +85,7 @@ Your repo also needs:
 If you run releases from a cloud agent that operates behind a network
 allowlist (GitHub-hosted Copilot agents, sandboxed CI runners, etc.),
 make sure the agent can reach `jsr.io` so it can resolve and run the
-CLI. For pinned-tag usage you'll also want `raw.githubusercontent.com`.
+CLI — the workflows pull it as `jsr:@sigmadigitalza/rational-release`.
 On unrestricted GitHub Actions runners this is already the default, so
 no change is needed.
 
@@ -114,7 +114,7 @@ release is cut. Trigger your publish workflow with `workflow_run` on
 | `mirror-paths` | _(empty)_ | `src:dst` pairs to copy after changelog generation. |
 | `changelog-path` | `CHANGELOG.md` | Path to the canonical changelog. |
 | `bootstrap-changelog` | `true` | Auto-create the changelog with a Keep-a-Changelog skeleton if missing. |
-| `base-ref` | `v1` | Tag/branch of this repo to source the CLI from. |
+| `cli` | `jsr:@sigmadigitalza/rational-release@^1` | CLI source. JSR specifier (default) or local path (`./cli/mod.ts`) for dogfooding. |
 | `runs-on` | `ubuntu-latest` | Runner label. |
 
 ### `cut-release.yml`
@@ -129,7 +129,7 @@ release is cut. Trigger your publish workflow with `workflow_run` on
 | `commit-paths` | _(empty)_ | |
 | `artefact-task` | _(empty)_ | Shell command(s) run after the tag is created. |
 | `artefact-paths` | _(empty)_ | Globs of files to attach to the GitHub Release. |
-| `base-ref` | `v1` | |
+| `cli` | `jsr:@sigmadigitalza/rational-release@^1` | CLI source. JSR specifier (default) or local path (`./cli/mod.ts`) for dogfooding. |
 | `runs-on` | `ubuntu-latest` | |
 
 ### `validate-pr.yml`
@@ -139,7 +139,7 @@ release is cut. Trigger your publish workflow with `workflow_run` on
 | `require-scope` | `false` | Require `type(scope): …`. |
 | `gate` | `false` | Fail the workflow on validation error (vs report-only). |
 | `validate-commits` | `true` | Also validate every commit message in the PR. |
-| `base-ref` | `v1` | |
+| `cli` | `jsr:@sigmadigitalza/rational-release@^1` | CLI source. JSR specifier (default) or local path (`./cli/mod.ts`) for dogfooding. |
 | `runs-on` | `ubuntu-latest` | |
 
 ## Bump rules

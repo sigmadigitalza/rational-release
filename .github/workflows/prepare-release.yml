@@ -45,10 +45,10 @@ on:
         description: "Auto-create a Keep-a-Changelog skeleton at changelog-path if it doesn't exist."
         type: boolean
         default: true
-      base-ref:
-        description: "Tag/branch of sigmadigitalza/rational-release to use for the CLI."
+      cli:
+        description: "Source for the rational-release CLI. A JSR specifier (default) or a local filesystem path. Use a path to dogfood an in-tree CLI."
         type: string
-        default: v1
+        default: "jsr:@sigmadigitalza/rational-release@^1"
       runs-on:
         type: string
         default: ubuntu-latest
@@ -107,7 +107,7 @@ jobs:
           MANIFEST: ${{ inputs.manifest-path }}
           JSONPATH: ${{ inputs.manifest-jsonpath }}
           PRE1: ${{ inputs.pre1-cap }}
-          CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
+          CLI: ${{ inputs.cli }}
         run: |
           set -euo pipefail
           current=$(deno run --allow-read "$CLI" read-version "$MANIFEST" --jsonpath "$JSONPATH")
@@ -166,7 +166,7 @@ jobs:
           MANIFEST: ${{ inputs.manifest-path }}
           JSONPATH: ${{ inputs.manifest-jsonpath }}
           NEXT: ${{ steps.bump.outputs.next }}
-          CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
+          CLI: ${{ inputs.cli }}
         run: deno run --allow-read --allow-write "$CLI" set-version "$MANIFEST" "$NEXT" --jsonpath "$JSONPATH"
 
       - name: Collect merged PRs for changelog
@@ -189,7 +189,7 @@ jobs:
       - name: Regenerate [Unreleased] section
         if: steps.gate.outputs.proceed == 'true'
         env:
-          CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
+          CLI: ${{ inputs.cli }}
           CHANGELOG: ${{ inputs.changelog-path }}
           BOOTSTRAP: ${{ inputs.bootstrap-changelog }}
         run: |
