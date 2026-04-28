@@ -1,16 +1,23 @@
-# Publishes the rational-release CLI to JSR on every push of a `v*`
-# tag. The tag is created by .github/workflows/cut-release.yml after a
-# release/* PR is merged.
+# Publishes the rational-release CLI to JSR.
 #
-# Requires the @sigmadigitalza scope to exist on jsr.io and to be linked
-# to this GitHub repo (handled in jsr.io's UI on first publish). OIDC
-# means no token is needed.
+# Triggers:
+#   - `push` of a `v*` tag (covers manually-pushed tags)
+#   - `workflow_run` after Cut Release succeeds (covers tags pushed by the
+#     reusable cut-release workflow's GITHUB_TOKEN, which by design does
+#     not trigger downstream `push` events)
+#
+# Requires the @sigmadigitalza scope on jsr.io to be linked to this
+# GitHub repo (handled in jsr.io UI on first publish). OIDC means no
+# token is needed.
 
 name: Publish to JSR
 
 on:
   push:
     tags: ["v*"]
+  workflow_run:
+    workflows: ["Cut Release"]
+    types: [completed]
 
 permissions:
   contents: read
@@ -18,6 +25,9 @@ permissions:
 
 jobs:
   publish:
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
