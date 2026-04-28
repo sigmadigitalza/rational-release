@@ -21,7 +21,7 @@
  *     deno run https://raw.githubusercontent.com/sigmadigitalza/rational-release/v1/cli/mod.ts <subcommand> ...
  */
 
-import { readFile, writeFile } from "node:fs/promises";
+import { appendFile, readFile, writeFile } from "node:fs/promises";
 import process from "node:process";
 
 import { highestBump } from "./conventional.ts";
@@ -35,6 +35,24 @@ import {
   renderUnreleased,
   rewriteUnreleased,
 } from "./changelog.ts";
+import {
+  type CommitsVerdict,
+  DEFAULT_ALLOWED_TYPES,
+  type TitleVerdict,
+  validateCommits,
+  validateTitle,
+} from "./validate.ts";
+import {
+  type CommitEntry,
+  listVersionTags,
+  parseOriginRepo,
+  readCommitsInRange,
+  readExistingHistory,
+  renderHtml,
+  renderMarkdown,
+  runGit,
+  tagDate,
+} from "./build_changelog.ts";
 
 const USAGE = `\
 rational-release <subcommand> [args...]
@@ -62,6 +80,29 @@ Subcommands:
 
   extract-section <changelog.md> <version>
       Print the body of [version] to stdout. Empty if missing.
+
+  validate-title [<title>] [--from-env VAR] [--require-scope]
+      Validate a single PR title against Conventional Commits. Reads from
+      the positional arg, then --from-env VAR (default PR_TITLE), then
+      stdin. Writes a markdown report to GITHUB_STEP_SUMMARY when set.
+      Exit 0 = valid, 1 = invalid.
+
+  validate-commits [<msg>...] [--commits-file FILE] [--from-env VAR]
+                   [--separator SEP] [--require-scope]
+      Validate a list of commit-message headers. Sources, in order:
+      positional args, --commits-file (one message per line, or split on
+      --separator), --from-env VAR (split on --separator, default
+      ---COMMIT_SEP---), or stdin. Merge commits and "Initial plan" are
+      skipped. Writes a markdown summary to GITHUB_STEP_SUMMARY when set.
+      Exit 0 = all valid, 1 = any invalid.
+
+  build-changelog [--output PATH] [--format md|html] [--repo OWNER/REPO]
+                  [--preserve-from FILE] [--cwd DIR]
+      Generate a conventional-changelog-style file from git history.
+      Groups commits by type into sections, builds GitHub compare links
+      between version tags, and (with --preserve-from) keeps historical
+      release sections from an existing changelog. Format defaults to md;
+      html produces a styled page that matches the docs site.
 `;
 
 async function readStdin(): Promise<string> {
@@ -73,7 +114,9 @@ async function readStdin(): Promise<string> {
   return text;
 }
 
-async function readSubjects(commitsFile: string | undefined): Promise<string[]> {
+async function readSubjects(
+  commitsFile: string | undefined,
+): Promise<string[]> {
   const text = commitsFile
     ? await readFile(commitsFile, "utf-8")
     : await readStdin();
@@ -126,7 +169,9 @@ async function cmdSetVersion(args: string[]): Promise<void> {
   const jsonpath = takeOption(args, "--jsonpath") ?? "$.version";
   const [manifestPath, version] = args;
   if (!manifestPath || !version) {
-    console.error("usage: set-version <manifest> <version> [--jsonpath $.version]");
+    console.error(
+      "usage: set-version <manifest> <version> [--jsonpath $.version]",
+    );
     process.exit(2);
   }
   await writeManifestVersion(manifestPath, jsonpath, version);
@@ -136,7 +181,9 @@ async function cmdChangelogGenerate(args: string[]): Promise<void> {
   const bootstrap = takeFlag(args, "--bootstrap");
   const [prsPath, changelogPath] = args;
   if (!prsPath || !changelogPath) {
-    console.error("usage: changelog-generate <prs.json> <changelog.md> [--bootstrap]");
+    console.error(
+      "usage: changelog-generate <prs.json> <changelog.md> [--bootstrap]",
+    );
     process.exit(2);
   }
   const prs = JSON.parse(await readFile(prsPath, "utf-8"));
@@ -166,7 +213,9 @@ async function cmdChangelogFinalise(args: string[]): Promise<void> {
     new Date().toISOString().slice(0, 10);
   const [changelogPath, version] = args;
   if (!changelogPath || !version) {
-    console.error("usage: changelog-finalise <changelog.md> <version> [--date YYYY-MM-DD]");
+    console.error(
+      "usage: changelog-finalise <changelog.md> <version> [--date YYYY-MM-DD]",
+    );
     process.exit(2);
   }
   const changelog = await readFile(changelogPath, "utf-8");
@@ -183,6 +232,222 @@ async function cmdExtractSection(args: string[]): Promise<void> {
   const changelog = await readFile(changelogPath, "utf-8");
   const body = extractSection(changelog, version);
   process.stdout.write(body);
+}
+
+async function appendStepSummary(text: string): Promise<void> {
+  const path = process.env.GITHUB_STEP_SUMMARY;
+  if (!path) return;
+  await appendFile(path, text);
+}
+
+function renderTitleSummary(title: string, verdict: TitleVerdict): string {
+  const lines: string[] = [];
+  if (verdict.ok) {
+    lines.push("## ✅ PR Title Validation Passed", "");
+    lines.push(`Title \`${title}\` follows the Conventional Commits spec.`);
+  } else {
+    lines.push("## ❌ PR Title Validation Failed", "");
+    lines.push(`Checked title: \`${title || "<empty>"}\``, "");
+    lines.push("### Errors", "");
+    for (const err of verdict.errors) lines.push(`- ${err}`);
+    lines.push("");
+    lines.push("PR title must follow: `type[(scope)]: description`", "");
+    lines.push(`Allowed types: \`${DEFAULT_ALLOWED_TYPES.join("`, `")}\``);
+  }
+  return lines.join("\n") + "\n";
+}
+
+async function cmdValidateTitle(args: string[]): Promise<void> {
+  const fromEnv = takeOption(args, "--from-env") ?? "PR_TITLE";
+  const requireScope = takeFlag(args, "--require-scope");
+  const positional = args[0];
+  const title = (
+    positional ??
+      process.env[fromEnv] ??
+      (process.stdin.isTTY ? "" : await readStdin())
+  ).trim();
+
+  const verdict = validateTitle(title, { requireScope });
+  if (verdict.ok) {
+    console.log(`✅  PR title is valid: "${title}"`);
+  } else {
+    console.error(`❌  PR title is invalid: "${title}"`);
+    for (const err of verdict.errors) console.error(`    • ${err}`);
+  }
+  await appendStepSummary(renderTitleSummary(title, verdict));
+  if (!verdict.ok) process.exit(1);
+}
+
+function renderCommitsSummary(verdict: CommitsVerdict): string {
+  const total = verdict.results.length;
+  const lines: string[] = [];
+  if (verdict.failed === 0) {
+    lines.push("## ✅ Commit Message Validation Passed", "");
+    lines.push(
+      `All **${total}** commit message(s) follow the Conventional Commits spec.`,
+    );
+  } else {
+    lines.push("## ❌ Commit Message Validation Failed", "");
+    lines.push(
+      `**${verdict.failed}** commit(s) failed validation out of **${total}** commit(s) checked.`,
+      "",
+    );
+    lines.push("### Errors", "");
+    for (const r of verdict.results) {
+      if (r.ok) continue;
+      lines.push(`#### \`${r.header}\``);
+      for (const err of r.errors) lines.push(`- ${err}`);
+      lines.push("");
+    }
+    lines.push("### Conventional Commits Spec", "");
+    lines.push("Commit messages must follow: `type[(scope)]: description`", "");
+    lines.push(`- **type**: one of \`${DEFAULT_ALLOWED_TYPES.join("`, `")}\``);
+    lines.push("- **scope**: optional, in parentheses");
+    lines.push("- **description**: non-empty summary");
+  }
+  return lines.join("\n") + "\n";
+}
+
+async function readCommitMessages(
+  args: string[],
+  commitsFile: string | undefined,
+  fromEnv: string | undefined,
+  separator: string,
+): Promise<string[]> {
+  if (args.length > 0) return args;
+
+  if (commitsFile) {
+    const text = await readFile(commitsFile, "utf-8");
+    if (text.includes(separator)) {
+      return text.split(separator).map((m) => m.trim()).filter(Boolean);
+    }
+    return text.split("\n").map((m) => m.trim()).filter(Boolean);
+  }
+
+  if (fromEnv) {
+    const raw = process.env[fromEnv] ?? "";
+    if (raw) {
+      return raw.split(separator).map((m) => m.trim()).filter(Boolean);
+    }
+  }
+
+  if (!process.stdin.isTTY) {
+    const text = await readStdin();
+    if (text.includes(separator)) {
+      return text.split(separator).map((m) => m.trim()).filter(Boolean);
+    }
+    return text.split("\n").map((m) => m.trim()).filter(Boolean);
+  }
+
+  return [];
+}
+
+async function cmdValidateCommits(args: string[]): Promise<void> {
+  const commitsFile = takeOption(args, "--commits-file");
+  const fromEnv = takeOption(args, "--from-env") ?? "COMMIT_MESSAGES";
+  const separator = takeOption(args, "--separator") ?? "---COMMIT_SEP---";
+  const requireScope = takeFlag(args, "--require-scope");
+
+  const messages = await readCommitMessages(
+    args,
+    commitsFile,
+    fromEnv,
+    separator,
+  );
+  if (messages.length === 0) {
+    console.log("No commit messages to validate.");
+    return;
+  }
+
+  const verdict = validateCommits(messages, { requireScope });
+  for (const r of verdict.results) {
+    if (r.skipped) continue;
+    if (r.ok) {
+      console.log(`✅  ${r.header}`);
+    } else {
+      console.error(`\n❌  ${r.header}`);
+      for (const err of r.errors) console.error(`    • ${err}`);
+    }
+  }
+  console.log(
+    `\n--- Summary: ${verdict.passed} passed, ${verdict.failed} failed, ${verdict.skipped} skipped out of ${messages.length} commit(s) ---`,
+  );
+  await appendStepSummary(renderCommitsSummary(verdict));
+  if (verdict.failed > 0) process.exit(1);
+}
+
+interface ReleaseRange {
+  version: string;
+  fromTag: string | null;
+  toTag: string;
+  date: string;
+  commits: CommitEntry[];
+}
+
+function buildReleaseRanges(tags: string[], cwd?: string): ReleaseRange[] {
+  const ranges: ReleaseRange[] = [];
+  for (let i = 0; i < tags.length; i += 1) {
+    const toTag = tags[i];
+    const fromTag = tags[i + 1] ?? null;
+    const range = fromTag ? `${fromTag}..${toTag}` : toTag;
+    ranges.push({
+      version: toTag.replace(/^v/, ""),
+      fromTag,
+      toTag,
+      date: tagDate(toTag, cwd),
+      commits: readCommitsInRange(range, cwd),
+    });
+  }
+  return ranges;
+}
+
+async function cmdBuildChangelog(args: string[]): Promise<void> {
+  const output = takeOption(args, "--output") ?? "CHANGELOG.md";
+  const format = takeOption(args, "--format") ?? "md";
+  const repoOpt = takeOption(args, "--repo");
+  const preserveFrom = takeOption(args, "--preserve-from");
+  const cwd = takeOption(args, "--cwd");
+
+  if (format !== "md" && format !== "html") {
+    console.error(`--format must be "md" or "html", got "${format}"`);
+    process.exit(2);
+  }
+
+  const repo = repoOpt ??
+    parseOriginRepo(runGit(["config", "--get", "remote.origin.url"], cwd));
+  const tags = listVersionTags(cwd);
+  const latestTag = tags[0] ?? null;
+
+  const unreleasedRange = latestTag ? `${latestTag}..HEAD` : "HEAD";
+  const unreleased = {
+    commits: readCommitsInRange(unreleasedRange, cwd),
+    fromTag: latestTag,
+  };
+
+  let preservedHistory: string | undefined;
+  if (preserveFrom) {
+    try {
+      const text = await readFile(preserveFrom, "utf-8");
+      const history = readExistingHistory(text);
+      if (history) preservedHistory = history;
+    } catch (err) {
+      if (
+        typeof err !== "object" || err === null ||
+        (err as { code?: string }).code !== "ENOENT"
+      ) {
+        throw err;
+      }
+    }
+  }
+
+  const releases = preservedHistory ? undefined : buildReleaseRanges(tags, cwd);
+
+  const rendered = format === "html"
+    ? renderHtml({ repo, unreleased, releases, preservedHistory })
+    : renderMarkdown({ repo, unreleased, releases, preservedHistory });
+
+  await writeFile(output, rendered);
+  console.log(`✅  Changelog written to ${output}`);
 }
 
 async function main(): Promise<void> {
@@ -205,6 +470,15 @@ async function main(): Promise<void> {
       return;
     case "extract-section":
       await cmdExtractSection(rest);
+      return;
+    case "validate-title":
+      await cmdValidateTitle(rest);
+      return;
+    case "validate-commits":
+      await cmdValidateCommits(rest);
+      return;
+    case "build-changelog":
+      await cmdBuildChangelog(rest);
       return;
     case "--help":
     case "-h":

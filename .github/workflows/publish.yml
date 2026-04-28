@@ -1,10 +1,9 @@
 # Publishes the rational-release CLI to JSR.
 #
-# Triggers:
-#   - `push` of a `v*` tag (covers manually-pushed tags)
-#   - `workflow_run` after Cut Release succeeds (covers tags pushed by the
-#     reusable cut-release workflow's GITHUB_TOKEN, which by design does
-#     not trigger downstream `push` events)
+# Triggers via workflow_run after Cut Release succeeds. The cut-release
+# workflow pushes the version tag using GITHUB_TOKEN, which by design
+# does not fire downstream `push` events — workflow_run is the standard
+# way to chain a publish job onto a tag-pushing release workflow.
 #
 # Requires the @sigmadigitalza scope on jsr.io to be linked to this
 # GitHub repo (handled in jsr.io UI on first publish). OIDC means no
@@ -13,8 +12,6 @@
 name: Publish to JSR
 
 on:
-  push:
-    tags: ["v*"]
   workflow_run:
     workflows: ["Cut Release"]
     types: [completed]
@@ -25,12 +22,12 @@ permissions:
 
 jobs:
   publish:
-    if: |
-      github.event_name == 'push' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x

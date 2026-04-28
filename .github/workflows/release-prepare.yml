@@ -1,5 +1,20 @@
 # Wrapper: prepare a release PR using our own reusable workflow.
 # Dogfoods rational-release/prepare-release.yml against this repo.
+#
+# This wrapper exercises three advanced features documented in the
+# advanced guide:
+#
+#   * pre-tasks   — gate the release with `deno fmt --check`, lint,
+#                   type-check, and the test suite. If any of these
+#                   fail, the release PR is not opened.
+#   * pre-tasks   — also generate `docs/changelog.html` from git
+#                   history via the CLI's own build-changelog
+#                   subcommand. This is the dogfood example: a task
+#                   the CLI itself supports as a first-class
+#                   capability, run as part of release prep.
+#   * commit-paths — commit the generated HTML changelog into the
+#                   release branch so the docs site stays in sync
+#                   with each release.
 
 name: Prepare Release
 
@@ -17,4 +32,10 @@ jobs:
     with:
       base-ref: ${{ github.sha }}
       pre-tasks: |
-        deno task ci
+        deno fmt --check
+        deno lint
+        deno check cli/mod.ts
+        deno test --allow-read --allow-env --allow-write --allow-run
+        deno run --allow-read --allow-write --allow-run --allow-env cli/mod.ts build-changelog --format html --output docs/changelog.html --preserve-from docs/changelog.html
+      commit-paths: |
+        docs/changelog.html

@@ -187,6 +187,9 @@ jobs:
 
       - name: Run artefact-task
         if: inputs.artefact-task != ''
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          PREV_TAG: ${{ steps.prev.outputs.tag }}
         run: |
           set -euo pipefail
           while IFS= read -r line; do

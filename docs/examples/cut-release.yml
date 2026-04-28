@@ -16,10 +16,23 @@ jobs:
   cut:
     uses: sigmadigitalza/rational-release/.github/workflows/cut-release.yml@v1
     with:
+      # Mirror the canonical changelog to a docs page (final version,
+      # not the [Unreleased] preview).
       mirror-paths: |
         CHANGELOG.md:docs/server/12-changelog.md
+
+      # Anything else the cut commit should carry alongside the
+      # finalised changelog.
       commit-paths: |
         ui/search-index.json
-      artefact-task: deno task package
+
+      # Build artefacts after the tag is cut. $VERSION and $PREV_TAG
+      # are exposed to the shell here.
+      artefact-task: |
+        deno task package
+        tar -czf "release-notes-v${VERSION}.tar.gz" CHANGELOG.md docs/
+
+      # Globs of files to attach to the GitHub Release.
       artefact-paths: |
         dist/*.tar.gz
+        release-notes-v*.tar.gz

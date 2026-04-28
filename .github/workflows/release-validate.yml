@@ -1,5 +1,6 @@
-# Wrapper: validate PR titles using our own reusable workflow.
-# Dogfoods rational-release/validate-pr.yml against this repo.
+# Wrapper: validate PR titles and commit messages on every PR.
+# Dogfoods rational-release/validate-pr.yml against this repo and gates
+# merges on conventional-commits compliance.
 
 name: Validate PR
 
@@ -8,8 +9,9 @@ on:
     types: [opened, edited, synchronize, reopened]
 
 jobs:
-  title:
+  conventional-commits:
     uses: ./.github/workflows/validate-pr.yml
     with:
-      gate: false
+      gate: true
+      validate-commits: true
       base-ref: ${{ github.sha }}

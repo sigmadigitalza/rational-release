@@ -8,8 +8,14 @@ on:
     types: [opened, edited, synchronize, reopened]
 
 jobs:
-  title:
+  conventional-commits:
     uses: sigmadigitalza/rational-release/.github/workflows/validate-pr.yml@v1
     with:
-      # Report-only by default. Set gate: true to make this a required check.
+      # Report-only by default. Set gate: true to make this a required
+      # check that blocks merge when wired up in branch protection.
       gate: false
+
+      # Validate every commit message in the PR (in addition to the
+      # title). Default true; set to false if you squash-merge and only
+      # care about the squash-commit subject.
+      validate-commits: true

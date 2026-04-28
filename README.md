@@ -30,8 +30,9 @@ Three reusable workflows, called via `workflow_call`:
   the changelog (`[Unreleased]` → `[X.Y.Z] - date`), tags `vX.Y.Z`, runs your
   `artefact-task`, and creates a GitHub Release with the changelog section as
   the body and the artefacts attached.
-- **`validate-pr.yml`** — fires on `pull_request`. Validates the PR title against
-  the conventional-commits spec. Report-only by default; opt-in to gating.
+- **`validate-pr.yml`** — fires on `pull_request`. Validates the PR title and
+  every commit message in the PR against the conventional-commits spec.
+  Report-only by default; opt-in to gating with `gate: true`.
 
 ## Quick start
 
@@ -135,9 +136,9 @@ release is cut. Trigger your publish workflow with `workflow_run` on
 
 | Input | Default | Purpose |
 |---|---|---|
-| `allowed-types` | `feat,fix,docs,style,refactor,perf,test,build,ci,chore,revert` | Comma-separated list of permitted commit types. |
 | `require-scope` | `false` | Require `type(scope): …`. |
-| `gate` | `false` | Fail the workflow on invalid title (vs report-only). |
+| `gate` | `false` | Fail the workflow on validation error (vs report-only). |
+| `validate-commits` | `true` | Also validate every commit message in the PR. |
 | `base-ref` | `v1` | |
 | `runs-on` | `ubuntu-latest` | |
 
@@ -173,6 +174,9 @@ rational-release set-version        <manifest> <version> [--jsonpath …]
 rational-release changelog-generate <prs.json> <changelog.md> [--bootstrap]
 rational-release changelog-finalise <changelog.md> <version> [--date YYYY-MM-DD]
 rational-release extract-section    <changelog.md> <version>
+rational-release validate-title     [<title>] [--from-env VAR] [--require-scope]
+rational-release validate-commits   [<msg>...] [--commits-file FILE] [--from-env VAR] [--separator SEP]
+rational-release build-changelog    [--output PATH] [--format md|html] [--repo OWNER/REPO] [--preserve-from FILE]
 ```
 
 Once published to JSR:
@@ -196,3 +200,8 @@ shapes change. Pin to an exact tag (`@v1.2.3`) if you want immutability.
 ## License
 
 [MIT](LICENSE).
+
+---
+
+Built by [sigmadigital.io](https://sigmadigital.io). Hosted docs at
+[sigmadigital.io/rational-release](https://sigmadigital.io/rational-release/).

@@ -1,25 +1,32 @@
-# Reusable: validate a PR title against the conventional commits spec.
+# Reusable: validate a PR against the conventional-commits spec.
 #
-# Defaults to report-only — writes a pass/fail block to the step summary
-# but doesn't fail the workflow. Set `gate: true` to turn the check into
-# a required status that blocks merge when wired up in branch protection.
+# Two checks, both run via the rational-release CLI:
+#   * PR title           — `rational-release validate-title`
+#   * Commit-message log — `rational-release validate-commits`
+#
+# Defaults to report-only — writes pass/fail blocks to the step summary
+# but doesn't fail the workflow. Set `gate: true` to turn the checks
+# into required statuses that block merge when wired up in branch
+# protection.
 
 name: rational-release / validate-pr
 
 on:
   workflow_call:
     inputs:
-      allowed-types:
-        type: string
-        default: feat,fix,docs,style,refactor,perf,test,build,ci,chore,revert
       require-scope:
         type: boolean
         default: false
       gate:
-        description: "Fail the workflow on invalid title (vs. report-only)."
+        description: "Fail the workflow on validation error (vs. report-only)."
         type: boolean
         default: false
+      validate-commits:
+        description: "Also validate every commit message in the PR."
+        type: boolean
+        default: true
       base-ref:
+        description: "Tag/branch of sigmadigitalza/rational-release to use for the CLI."
         type: string
         default: v1
       runs-on:
@@ -34,59 +41,78 @@ jobs:
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 5
     steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
       - name: Install Deno
         uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
 
-      - name: Validate
+      - name: Validate PR title
+        id: title
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
-          ALLOWED: ${{ inputs.allowed-types }}
           REQUIRE_SCOPE: ${{ inputs.require-scope }}
           GATE: ${{ inputs.gate }}
           CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
         run: |
           set -euo pipefail
-          # Use the CLI's parser for behavioural parity with bump computation.
-          # We call a tiny inline TS that imports parseSubject and prints a JSON verdict.
-          cat > /tmp/validate.ts <<'EOF'
-          import { parseSubject } from "https://raw.githubusercontent.com/sigmadigitalza/rational-release/__BASE_REF__/cli/conventional.ts";
-          const [title, allowedRaw, requireScope] = Deno.args;
-          const allowed = new Set(allowedRaw.split(",").map((s) => s.trim()));
-          const parsed = parseSubject(title);
-          const result = { ok: false, reason: "" as string, parsed };
-          if (!parsed) {
-            result.reason = "Title does not match `type(scope)?!?: description`.";
-          } else if (!allowed.has(parsed.type)) {
-            result.reason = `Type \`${parsed.type}\` is not in the allowed list (${allowedRaw}).`;
-          } else if (requireScope === "true" && !parsed.scope) {
-            result.reason = "Scope is required (`type(scope): ...`).";
-          } else {
-            result.ok = true;
-          }
-          console.log(JSON.stringify(result));
-          EOF
-          sed -i "s|__BASE_REF__|${{ inputs.base-ref }}|g" /tmp/validate.ts
-          verdict=$(deno run --allow-read /tmp/validate.ts "$PR_TITLE" "$ALLOWED" "$REQUIRE_SCOPE")
-          ok=$(echo "$verdict" | jq -r '.ok')
-          reason=$(echo "$verdict" | jq -r '.reason')
+          flags=( --from-env PR_TITLE )
+          [ "$REQUIRE_SCOPE" = "true" ] && flags+=( --require-scope )
 
-          {
-            echo "## PR title check"
-            echo
-            echo "**Title:** \`$PR_TITLE\`"
-            echo
-            if [ "$ok" = "true" ]; then
-              echo "✅ Conforms to Conventional Commits."
-            else
-              echo "❌ $reason"
-              echo
-              echo "Expected format: \`type(scope)?!?: description\`. Allowed types: \`$ALLOWED\`."
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$ok" != "true" ] && [ "$GATE" = "true" ]; then
-            echo "::error::PR title failed validation: $reason"
-            exit 1
+          # Capture exit code without aborting the step — we want the
+          # commit check to also run before deciding to fail.
+          if deno run --allow-read --allow-env --allow-write="$GITHUB_STEP_SUMMARY" \
+              "$CLI" validate-title "${flags[@]}"; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Validate commit messages
+        id: commits
+        if: inputs.validate-commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REQUIRE_SCOPE: ${{ inputs.require-scope }}
+          CLI: https://raw.githubusercontent.com/sigmadigitalza/rational-release/${{ inputs.base-ref }}/cli/mod.ts
+        run: |
+          set -euo pipefail
+          # Collect commit subjects in the PR range, separated by a marker
+          # the CLI splits on. %x1f (unit separator) appears nowhere in
+          # commit subjects, so we use it instead of a literal string.
+          git log --format='%s---COMMIT_SEP---' "${BASE_SHA}..${HEAD_SHA}" > commits.txt
+
+          flags=( --commits-file commits.txt --separator '---COMMIT_SEP---' )
+          [ "$REQUIRE_SCOPE" = "true" ] && flags+=( --require-scope )
+
+          if deno run --allow-read --allow-env --allow-write="$GITHUB_STEP_SUMMARY" \
+              "$CLI" validate-commits "${flags[@]}"; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Gate
+        if: inputs.gate
+        env:
+          TITLE_OK: ${{ steps.title.outputs.ok }}
+          COMMITS_OK: ${{ steps.commits.outputs.ok }}
+          COMMITS_RAN: ${{ inputs.validate-commits }}
+        run: |
+          set -euo pipefail
+          fail=0
+          if [ "$TITLE_OK" != "true" ]; then
+            echo "::error::PR title failed conventional-commits validation."
+            fail=1
+          fi
+          if [ "$COMMITS_RAN" = "true" ] && [ "$COMMITS_OK" != "true" ]; then
+            echo "::error::One or more commit messages failed validation."
+            fail=1
+          fi
+          exit "$fail"

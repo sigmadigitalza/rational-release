@@ -17,7 +17,7 @@
     ]
   },
   "tasks": {
-    "test": "deno test --allow-read --allow-write cli/",
+    "test": "deno test --allow-read --allow-write --allow-run --allow-env cli/",
     "lint": "deno lint cli/",
     "check": "deno check cli/mod.ts",
     "ci": "deno task lint && deno task check && deno task test"

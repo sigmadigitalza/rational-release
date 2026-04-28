@@ -1,16 +1,21 @@
 # Deploy the static docs/ site to GitHub Pages.
 #
-# First-run setup: in repo Settings → Pages, set "Source" to "GitHub Actions".
-# After that, every push to main that touches docs/** redeploys.
+# First-run setup: in repo Settings → Pages, set "Source" to "GitHub
+# Actions". After that, the docs site redeploys whenever Cut Release
+# completes successfully — release-prepare.yml regenerates
+# docs/changelog.html as part of release prep, so by the time Cut
+# Release merges to main and finishes, the docs/ tree is in sync with
+# the just-cut version.
+#
+# `workflow_dispatch` remains available for manual redeploys (e.g.
+# fixing a typo in tutorial.html that doesn't warrant a release).
 
 name: Deploy Pages
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "docs/**"
-      - ".github/workflows/pages.yml"
+  workflow_run:
+    workflows: ["Cut Release"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -24,6 +29,9 @@ concurrency:
 
 jobs:
   deploy:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     environment:
       name: github-pages

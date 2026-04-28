@@ -18,8 +18,9 @@ export function nextVersion(
   options: { pre1Cap?: boolean } = {},
 ): string {
   const [major, minor, patch] = parseVersion(current);
-  const effective: Bump =
-    options.pre1Cap && major === 0 && bump === "major" ? "minor" : bump;
+  const effective: Bump = options.pre1Cap && major === 0 && bump === "major"
+    ? "minor"
+    : bump;
   switch (effective) {
     case "major":
       return `${major + 1}.0.0`;
