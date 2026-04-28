@@ -151,6 +151,13 @@ jobs:
 
       - name: Run pre-tasks
         if: steps.gate.outputs.proceed == 'true' && inputs.pre-tasks != ''
+        # Expose the computed bump so user pre-tasks (e.g. regenerating
+        # docs/changelog.html) can attribute commits to the upcoming
+        # release rather than the Unreleased bucket. RR_PREV_TAG is the
+        # tag the bump is being computed against (empty on first release).
+        env:
+          RR_NEXT_VERSION: ${{ steps.bump.outputs.next }}
+          RR_PREV_TAG: ${{ steps.prev.outputs.tag }}
         run: |
           set -euo pipefail
           while IFS= read -r line; do

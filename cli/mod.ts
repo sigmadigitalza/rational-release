@@ -97,12 +97,19 @@ Subcommands:
       Exit 0 = all valid, 1 = any invalid.
 
   build-changelog [--output PATH] [--format md|html] [--repo OWNER/REPO]
-                  [--preserve-from FILE] [--cwd DIR]
+                  [--preserve-from FILE] [--next-version VER]
+                  [--next-date YYYY-MM-DD] [--cwd DIR]
       Generate a conventional-changelog-style file from git history.
       Groups commits by type into sections, builds GitHub compare links
       between version tags, and (with --preserve-from) keeps historical
       release sections from an existing changelog. Format defaults to md;
       html produces a styled page that matches the docs site.
+
+      Pass --next-version <X.Y.Z> during release-prep to attribute the
+      commits since the latest tag to the upcoming release (with today's
+      date, or --next-date if you need to override) rather than to the
+      Unreleased bucket. The generated compare link points at v<X.Y.Z>,
+      which becomes valid once cut-release tags it.
 `;
 
 async function readStdin(): Promise<string> {
@@ -407,22 +414,66 @@ async function cmdBuildChangelog(args: string[]): Promise<void> {
   const repoOpt = takeOption(args, "--repo");
   const preserveFrom = takeOption(args, "--preserve-from");
   const cwd = takeOption(args, "--cwd");
+  const nextVersion = takeOption(args, "--next-version");
+  const nextDate = takeOption(args, "--next-date");
 
   if (format !== "md" && format !== "html") {
     console.error(`--format must be "md" or "html", got "${format}"`);
     process.exit(2);
   }
 
+  if (nextDate && !nextVersion) {
+    console.error("--next-date requires --next-version");
+    process.exit(2);
+  }
+
+  if (nextVersion && preserveFrom) {
+    console.error("--next-version and --preserve-from cannot be used together");
+    process.exit(2);
+  }
+
+  // Strip an optional leading "v" and validate X.Y.Z semver form.
+  const normalizedNextVersion = nextVersion
+    ? (() => {
+      const v = nextVersion.replace(/^v/, "");
+      if (!/^\d+\.\d+\.\d+$/.test(v)) {
+        console.error(
+          `--next-version must be X.Y.Z (e.g. 1.2.3), got "${nextVersion}"`,
+        );
+        process.exit(2);
+      }
+      return v;
+    })()
+    : null;
+
   const repo = repoOpt ??
     parseOriginRepo(runGit(["config", "--get", "remote.origin.url"], cwd));
   const tags = listVersionTags(cwd);
   const latestTag = tags[0] ?? null;
 
-  const unreleasedRange = latestTag ? `${latestTag}..HEAD` : "HEAD";
-  const unreleased = {
-    commits: readCommitsInRange(unreleasedRange, cwd),
+  // When `--next-version` is set, the commits since the latest tag belong
+  // to the upcoming release rather than the Unreleased bucket. This is
+  // what `prepare-release` wants: it knows the tag that will be cut once
+  // its release PR merges, so the docs can be written with that tag in
+  // place. Without this flag, the same commits surface under Unreleased
+  // (which is correct outside a release-prep run).
+  const pendingCommits = readCommitsInRange(
+    latestTag ? `${latestTag}..HEAD` : "HEAD",
+    cwd,
+  );
+  const unreleased = normalizedNextVersion ? undefined : {
+    commits: pendingCommits,
     fromTag: latestTag,
   };
+  const pendingRelease = normalizedNextVersion
+    ? {
+      version: normalizedNextVersion,
+      fromTag: latestTag,
+      toTag: `v${normalizedNextVersion}`,
+      date: nextDate ?? new Date().toISOString().slice(0, 10),
+      commits: pendingCommits,
+    }
+    : null;
 
   let preservedHistory: string | undefined;
   if (preserveFrom) {
@@ -440,7 +491,12 @@ async function cmdBuildChangelog(args: string[]): Promise<void> {
     }
   }
 
-  const releases = preservedHistory ? undefined : buildReleaseRanges(tags, cwd);
+  const tagReleases = preservedHistory
+    ? undefined
+    : buildReleaseRanges(tags, cwd);
+  const releases = pendingRelease
+    ? [pendingRelease, ...(tagReleases ?? [])]
+    : tagReleases;
 
   const rendered = format === "html"
     ? renderHtml({ repo, unreleased, releases, preservedHistory })

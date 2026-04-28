@@ -248,6 +248,35 @@ Deno.test("renderMarkdown: release without fromTag uses tag URL", () => {
   );
 });
 
+Deno.test("renderMarkdown: pending release (next-version style) uses compare URL pointing at unborn tag", () => {
+  // The CLI builds this shape when --next-version is passed: the
+  // commits since the previous tag are attributed to vX.Y.Z, not
+  // Unreleased. The compare URL targets the unborn tag, which goes
+  // live once cut-release tags it.
+  const md = renderMarkdown({
+    repo: "o/r",
+    releases: [{
+      version: "1.2.0",
+      fromTag: "v1.1.0",
+      toTag: "v1.2.0",
+      date: "2026-04-29",
+      commits: [{
+        sha: "abc",
+        subject: "feat: x",
+        section: "Features",
+        title: "x",
+      }],
+    }],
+  });
+  eq(
+    md.includes(
+      "## [1.2.0](https://github.com/o/r/compare/v1.1.0...v1.2.0) (2026-04-29)",
+    ),
+    true,
+  );
+  eq(md.includes("Unreleased"), false);
+});
+
 Deno.test("renderHtml: produces a valid-looking page with site chrome", () => {
   const html = renderHtml({
     repo: "owner/repo",

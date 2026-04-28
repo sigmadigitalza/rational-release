@@ -37,6 +37,6 @@ jobs:
         deno lint
         deno check cli/mod.ts
         deno test --allow-read --allow-env --allow-write --allow-run
-        deno run --allow-read --allow-write --allow-run --allow-env cli/mod.ts build-changelog --format html --output docs/changelog.html --preserve-from docs/changelog.html
+        deno run --allow-read --allow-write --allow-run --allow-env cli/mod.ts build-changelog --format html --output docs/changelog.html --next-version "$RR_NEXT_VERSION"
       commit-paths: |
         docs/changelog.html
