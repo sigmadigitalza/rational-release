@@ -422,6 +422,30 @@ async function cmdBuildChangelog(args: string[]): Promise<void> {
     process.exit(2);
   }
 
+  if (nextDate && !nextVersion) {
+    console.error("--next-date requires --next-version");
+    process.exit(2);
+  }
+
+  if (nextVersion && preserveFrom) {
+    console.error("--next-version and --preserve-from cannot be used together");
+    process.exit(2);
+  }
+
+  // Strip an optional leading "v" and validate X.Y.Z semver form.
+  const normalizedNextVersion = nextVersion
+    ? (() => {
+      const v = nextVersion.replace(/^v/, "");
+      if (!/^\d+\.\d+\.\d+$/.test(v)) {
+        console.error(
+          `--next-version must be X.Y.Z (e.g. 1.2.3), got "${nextVersion}"`,
+        );
+        process.exit(2);
+      }
+      return v;
+    })()
+    : null;
+
   const repo = repoOpt ??
     parseOriginRepo(runGit(["config", "--get", "remote.origin.url"], cwd));
   const tags = listVersionTags(cwd);
@@ -437,15 +461,15 @@ async function cmdBuildChangelog(args: string[]): Promise<void> {
     latestTag ? `${latestTag}..HEAD` : "HEAD",
     cwd,
   );
-  const unreleased = nextVersion ? undefined : {
+  const unreleased = normalizedNextVersion ? undefined : {
     commits: pendingCommits,
     fromTag: latestTag,
   };
-  const pendingRelease = nextVersion
+  const pendingRelease = normalizedNextVersion
     ? {
-      version: nextVersion,
+      version: normalizedNextVersion,
       fromTag: latestTag,
-      toTag: `v${nextVersion}`,
+      toTag: `v${normalizedNextVersion}`,
       date: nextDate ?? new Date().toISOString().slice(0, 10),
       commits: pendingCommits,
     }
