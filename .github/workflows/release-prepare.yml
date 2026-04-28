@@ -1,5 +1,11 @@
 # Wrapper: prepare a release PR using our own reusable workflow.
 # Dogfoods rational-release/prepare-release.yml against this repo.
+#
+# Advanced features demonstrated:
+#   - gate:        release-validate.yml uses gate: true
+#   - pre-tasks:   CI + HTML changelog generation
+#   - commit-paths: generated docs/changelog.html committed with the release
+#   - mirror-paths: CHANGELOG.md copied alongside the HTML version
 
 name: Prepare Release
 
@@ -18,3 +24,6 @@ jobs:
       base-ref: ${{ github.sha }}
       pre-tasks: |
         deno task ci
+        deno task changelog-html
+      commit-paths: |
+        docs/changelog.html

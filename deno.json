@@ -20,7 +20,8 @@
     "test": "deno test --allow-read --allow-write cli/",
     "lint": "deno lint cli/",
     "check": "deno check cli/mod.ts",
-    "ci": "deno task lint && deno task check && deno task test"
+    "ci": "deno task lint && deno task check && deno task test",
+    "changelog-html": "deno run --allow-read --allow-write scripts/generate-changelog-html.ts"
   },
   "lint": {
     "include": [

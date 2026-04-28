@@ -11,5 +11,5 @@ jobs:
   title:
     uses: ./.github/workflows/validate-pr.yml
     with:
-      gate: false
+      gate: true
       base-ref: ${{ github.sha }}

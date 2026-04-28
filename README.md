@@ -196,3 +196,7 @@ shapes change. Pin to an exact tag (`@v1.2.3`) if you want immutability.
 ## License
 
 [MIT](LICENSE).
+
+---
+
+Built by [Sigma Digital](https://sigmadigital.io).

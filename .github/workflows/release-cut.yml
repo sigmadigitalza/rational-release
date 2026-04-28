@@ -2,6 +2,11 @@
 # Dogfoods rational-release/cut-release.yml against this repo.
 # JSR publishing remains in publish.yml — it triggers on the tag push
 # this workflow creates.
+#
+# Advanced features demonstrated:
+#   - commit-paths:   generated docs/changelog.html committed at finalise
+#   - artefact-task:  bundles the reusable workflow YAMLs into a tarball
+#   - artefact-paths: attaches the tarball to the GitHub Release
 
 name: Cut Release
 
@@ -19,3 +24,11 @@ jobs:
     uses: ./.github/workflows/cut-release.yml
     with:
       base-ref: ${{ github.sha }}
+      commit-paths: |
+        docs/changelog.html
+      artefact-task: |
+        deno task changelog-html
+        mkdir -p dist
+        tar czf dist/rational-release-workflows.tar.gz -C .github/workflows prepare-release.yml cut-release.yml validate-pr.yml
+      artefact-paths: |
+        dist/rational-release-workflows.tar.gz
