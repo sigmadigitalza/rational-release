@@ -21,6 +21,9 @@
  *     deno run https://raw.githubusercontent.com/sigmadigitalza/rational-release/v1/cli/mod.ts <subcommand> ...
  */
 
+import { readFile, writeFile } from "node:fs/promises";
+import process from "node:process";
+
 import { highestBump } from "./conventional.ts";
 import { nextVersion } from "./version.ts";
 import { readManifestVersion, writeManifestVersion } from "./manifest.ts";
@@ -61,23 +64,19 @@ Subcommands:
       Print the body of [version] to stdout. Empty if missing.
 `;
 
-async function readSubjects(commitsFile: string | undefined): Promise<string[]> {
-  let text: string;
-  if (commitsFile) {
-    text = await Deno.readTextFile(commitsFile);
-  } else {
-    const buf = new Uint8Array(64 * 1024);
-    const chunks: Uint8Array[] = [];
-    let n: number | null;
-    while ((n = await Deno.stdin.read(buf)) !== null) {
-      chunks.push(buf.slice(0, n));
-    }
-    text = new TextDecoder().decode(
-      new Uint8Array(
-        chunks.reduce<number[]>((acc, c) => acc.concat([...c]), []),
-      ),
-    );
+async function readStdin(): Promise<string> {
+  process.stdin.setEncoding("utf-8");
+  let text = "";
+  for await (const chunk of process.stdin) {
+    text += chunk;
   }
+  return text;
+}
+
+async function readSubjects(commitsFile: string | undefined): Promise<string[]> {
+  const text = commitsFile
+    ? await readFile(commitsFile, "utf-8")
+    : await readStdin();
   return text.split("\n").map((l) => l.trim()).filter(Boolean);
 }
 
@@ -104,7 +103,7 @@ async function cmdNextVersion(args: string[]): Promise<void> {
   const [manifestPath] = args;
   if (!manifestPath) {
     console.error("usage: next-version <manifest> [...]");
-    Deno.exit(2);
+    process.exit(2);
   }
   const current = await readManifestVersion(manifestPath, jsonpath);
   const subjects = await readSubjects(commitsFile);
@@ -118,7 +117,7 @@ async function cmdReadVersion(args: string[]): Promise<void> {
   const [manifestPath] = args;
   if (!manifestPath) {
     console.error("usage: read-version <manifest> [--jsonpath $.version]");
-    Deno.exit(2);
+    process.exit(2);
   }
   console.log(await readManifestVersion(manifestPath, jsonpath));
 }
@@ -128,7 +127,7 @@ async function cmdSetVersion(args: string[]): Promise<void> {
   const [manifestPath, version] = args;
   if (!manifestPath || !version) {
     console.error("usage: set-version <manifest> <version> [--jsonpath $.version]");
-    Deno.exit(2);
+    process.exit(2);
   }
   await writeManifestVersion(manifestPath, jsonpath, version);
 }
@@ -138,14 +137,19 @@ async function cmdChangelogGenerate(args: string[]): Promise<void> {
   const [prsPath, changelogPath] = args;
   if (!prsPath || !changelogPath) {
     console.error("usage: changelog-generate <prs.json> <changelog.md> [--bootstrap]");
-    Deno.exit(2);
+    process.exit(2);
   }
-  const prs = JSON.parse(await Deno.readTextFile(prsPath));
+  const prs = JSON.parse(await readFile(prsPath, "utf-8"));
   let changelog: string;
   try {
-    changelog = await Deno.readTextFile(changelogPath);
+    changelog = await readFile(changelogPath, "utf-8");
   } catch (err) {
-    if (err instanceof Deno.errors.NotFound && bootstrap) {
+    if (
+      bootstrap &&
+      typeof err === "object" &&
+      err !== null &&
+      (err as { code?: string }).code === "ENOENT"
+    ) {
       changelog = bootstrapTemplate();
     } else {
       throw err;
@@ -154,7 +158,7 @@ async function cmdChangelogGenerate(args: string[]): Promise<void> {
   const buckets = bucketPrs(prs);
   const body = renderUnreleased(buckets);
   const updated = rewriteUnreleased(changelog, body);
-  await Deno.writeTextFile(changelogPath, updated);
+  await writeFile(changelogPath, updated);
 }
 
 async function cmdChangelogFinalise(args: string[]): Promise<void> {
@@ -163,26 +167,26 @@ async function cmdChangelogFinalise(args: string[]): Promise<void> {
   const [changelogPath, version] = args;
   if (!changelogPath || !version) {
     console.error("usage: changelog-finalise <changelog.md> <version> [--date YYYY-MM-DD]");
-    Deno.exit(2);
+    process.exit(2);
   }
-  const changelog = await Deno.readTextFile(changelogPath);
+  const changelog = await readFile(changelogPath, "utf-8");
   const updated = finaliseUnreleased(changelog, version, date);
-  await Deno.writeTextFile(changelogPath, updated);
+  await writeFile(changelogPath, updated);
 }
 
 async function cmdExtractSection(args: string[]): Promise<void> {
   const [changelogPath, version] = args;
   if (!changelogPath || !version) {
     console.error("usage: extract-section <changelog.md> <version>");
-    Deno.exit(2);
+    process.exit(2);
   }
-  const changelog = await Deno.readTextFile(changelogPath);
+  const changelog = await readFile(changelogPath, "utf-8");
   const body = extractSection(changelog, version);
-  await Deno.stdout.write(new TextEncoder().encode(body));
+  process.stdout.write(body);
 }
 
 async function main(): Promise<void> {
-  const [sub, ...rest] = Deno.args;
+  const [sub, ...rest] = process.argv.slice(2);
   switch (sub) {
     case "next-version":
       await cmdNextVersion(rest);
@@ -209,10 +213,8 @@ async function main(): Promise<void> {
       return;
     default:
       console.error(`Unknown subcommand: ${sub}\n\n${USAGE}`);
-      Deno.exit(2);
+      process.exit(2);
   }
 }
 
-if (import.meta.main) {
-  await main();
-}
+await main();

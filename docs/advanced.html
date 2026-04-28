@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Advanced examples — rational-release</title>
+  <meta name="description" content="Custom pre-tasks, mirrored docs, attached artefacts, JSR/npm publishing, and the CLI as a standalone tool.">
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header-inner">
+      <a href="./" class="brand">rational-release</a>
+      <nav class="nav">
+        <a href="./">Overview</a>
+        <a href="tutorial.html">Tutorial</a>
+        <a href="advanced.html" class="current">Advanced</a>
+        <a href="https://github.com/sigmadigitalza/rational-release">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <h1>Advanced examples</h1>
+    <p class="lead">
+      Patterns for fitting <code>rational-release</code> around real projects:
+      mirrored changelogs, attached artefacts, gated pre-tasks, JSR / npm publish triggers,
+      and using the CLI directly outside the workflows.
+    </p>
+
+    <div class="toc">
+      <strong>On this page</strong>
+      <ol>
+        <li><a href="#pre-tasks">Pre-tasks: gating the release PR</a></li>
+        <li><a href="#mirror">Mirroring the changelog into a docs site</a></li>
+        <li><a href="#commit-paths">Adding generated files to the release commit</a></li>
+        <li><a href="#artefacts">Attaching artefacts to the GitHub Release</a></li>
+        <li><a href="#publish">Triggering JSR / npm publish from cut-release</a></li>
+        <li><a href="#manifest">Non-default manifest paths</a></li>
+        <li><a href="#cli">Using the CLI standalone</a></li>
+        <li><a href="#pin">Pinning to an exact version</a></li>
+      </ol>
+    </div>
+
+    <h2 id="pre-tasks">Pre-tasks: gating the release PR</h2>
+
+    <p>
+      <code>pre-tasks</code> is a newline-separated shell script that runs before the
+      release PR is generated. If any line exits non-zero, the workflow fails and the
+      release PR is not opened or updated. Use it as your release gate.
+    </p>
+
+<pre><code><span class="tok-k">jobs</span>:
+  <span class="tok-k">prepare</span>:
+    <span class="tok-k">uses</span>: <span class="tok-s">sigmadigitalza/rational-release/.github/workflows/prepare-release.yml@v1</span>
+    <span class="tok-k">with</span>:
+      <span class="tok-k">pre-tasks</span>: |
+        deno fmt --check
+        deno lint
+        deno check src/mod.ts
+        deno test --allow-read --allow-net</code></pre>
+
+    <p>
+      If you have a heavier integration suite, run it here too &mdash; the worst case
+      is the release PR doesn&rsquo;t open until the suite is green.
+    </p>
+
+    <h2 id="mirror">Mirroring the changelog into a docs site</h2>
+
+    <p>
+      Many projects keep a docs site that wants the changelog rendered alongside other pages.
+      <code>mirror-paths</code> takes <code>src:dst</code> pairs and copies after changelog
+      generation, so the doc page tracks the source of truth on every release-PR update.
+    </p>
+
+<pre><code><span class="tok-k">with</span>:
+  <span class="tok-k">mirror-paths</span>: |
+    CHANGELOG.md:docs/changelog.md
+    CHANGELOG.md:website/src/pages/changelog.md</code></pre>
+
+    <h2 id="commit-paths">Adding generated files to the release commit</h2>
+
+    <p>
+      If your <code>pre-tasks</code> regenerates a search index, an OpenAPI spec, or a
+      bundled CSS file, those files need to be part of the prepare commit so they ship
+      with the release. List the paths in <code>commit-paths</code>:
+    </p>
+
+<pre><code><span class="tok-k">with</span>:
+  <span class="tok-k">pre-tasks</span>: |
+    deno task build      <span class="tok-c"># writes ui/search-index.json and dist/openapi.json</span>
+  <span class="tok-k">commit-paths</span>: |
+    ui/search-index.json
+    dist/openapi.json</code></pre>
+
+    <p>
+      The version bump in the manifest, the changelog, and any mirrored paths are
+      always staged automatically. <code>commit-paths</code> is purely additive.
+    </p>
+
+    <h2 id="artefacts">Attaching artefacts to the GitHub Release</h2>
+
+    <p>
+      <code>cut-release</code> can run a build step after tagging and attach the result as
+      release-asset downloads. Useful for binary distributions, source tarballs, or
+      anything you&rsquo;d normally upload by hand.
+    </p>
+
+<pre><code><span class="tok-k">jobs</span>:
+  <span class="tok-k">cut</span>:
+    <span class="tok-k">uses</span>: <span class="tok-s">sigmadigitalza/rational-release/.github/workflows/cut-release.yml@v1</span>
+    <span class="tok-k">with</span>:
+      <span class="tok-k">artefact-task</span>: <span class="tok-s">deno task package</span>
+      <span class="tok-k">artefact-paths</span>: <span class="tok-s">dist/*.tar.gz dist/checksums.txt</span></code></pre>
+
+    <p>
+      <code>artefact-paths</code> is a glob list. Anything matched is uploaded to the GitHub
+      Release alongside the auto-generated source archives.
+    </p>
+
+    <h2 id="publish">Triggering JSR / npm publish from cut-release</h2>
+
+    <p>
+      Tags pushed by <code>cut-release</code> use the default <code>GITHUB_TOKEN</code>. GitHub
+      <a href="https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow">intentionally does not fire downstream <code>push</code> workflows</a>
+      from tokens-pushed events &mdash; loop prevention. So a publish workflow listening on
+      <code>push: tags: [v*]</code> will never run.
+    </p>
+
+    <p>The fix is <code>workflow_run</code> &mdash; allowed to fire from the same token-pushed event:</p>
+
+<pre><code><span class="tok-k">name</span>: <span class="tok-s">Publish to JSR</span>
+<span class="tok-k">on</span>:
+  <span class="tok-k">workflow_run</span>:
+    <span class="tok-k">workflows</span>: [<span class="tok-s">"Cut Release"</span>]    <span class="tok-c"># must match name: in cut-release.yml exactly</span>
+    <span class="tok-k">types</span>: [completed]
+<span class="tok-k">permissions</span>:
+  <span class="tok-k">contents</span>: read
+  <span class="tok-k">id-token</span>: write
+<span class="tok-k">jobs</span>:
+  <span class="tok-k">publish</span>:
+    <span class="tok-k">if</span>: <span class="tok-s">${{ github.event.workflow_run.conclusion == 'success' }}</span>
+    <span class="tok-k">runs-on</span>: <span class="tok-s">ubuntu-latest</span>
+    <span class="tok-k">steps</span>:
+      - <span class="tok-k">uses</span>: <span class="tok-s">actions/checkout@v4</span>
+      - <span class="tok-k">uses</span>: <span class="tok-s">denoland/setup-deno@v2</span>
+        <span class="tok-k">with</span>: { <span class="tok-k">deno-version</span>: <span class="tok-s">v2.x</span> }
+      - <span class="tok-k">run</span>: <span class="tok-s">deno publish</span></code></pre>
+
+    <p>For npm:</p>
+
+<pre><code>      - <span class="tok-k">uses</span>: <span class="tok-s">actions/setup-node@v4</span>
+        <span class="tok-k">with</span>:
+          <span class="tok-k">node-version</span>: <span class="tok-s">"22"</span>
+          <span class="tok-k">registry-url</span>: <span class="tok-s">"https://registry.npmjs.org"</span>
+      - <span class="tok-k">run</span>: <span class="tok-s">npm publish --provenance --access public</span>
+        <span class="tok-k">env</span>:
+          <span class="tok-k">NODE_AUTH_TOKEN</span>: <span class="tok-s">${{ secrets.NPM_TOKEN }}</span></code></pre>
+
+    <div class="callout">
+      <strong>JSR setup.</strong> Before the first publish, create the package on
+      <a href="https://jsr.io">jsr.io</a>, link it to the GitHub repo (so OIDC trust is set
+      up), and confirm the version in your manifest matches the tag you&rsquo;re cutting.
+      The first run is the only one where you&rsquo;ll touch JSR&rsquo;s UI.
+    </div>
+
+    <h2 id="manifest">Non-default manifest paths</h2>
+
+    <p>
+      Default is <code>deno.json</code> with <code>$.version</code>. Override either:
+    </p>
+
+<pre><code><span class="tok-k">with</span>:
+  <span class="tok-k">manifest-path</span>: <span class="tok-s">package.json</span>
+  <span class="tok-k">manifest-jsonpath</span>: <span class="tok-s">$.version</span>     <span class="tok-c"># default; shown for clarity</span></code></pre>
+
+    <p>
+      <code>manifest-jsonpath</code> takes a dot-path: <code>$.version</code>,
+      <code>$.workspaces.api.version</code>, etc. Array indexing and filters are not supported &mdash;
+      the version field for any single package is always at a dotted-path location in the wild.
+    </p>
+
+    <h2 id="cli">Using the CLI standalone</h2>
+
+    <p>
+      The CLI underneath the workflows ships on JSR and uses only <code>node:*</code>
+      standard-library imports, so it runs on Deno, Node, and Bun unchanged. Useful for
+      one-off tasks &mdash; computing the next version locally, extracting a single
+      changelog section, or scripting outside GitHub Actions.
+    </p>
+
+<pre><code><span class="tok-c"># Compute the next version from current commits</span>
+git log v1.2.3..HEAD --pretty=%s | \
+  deno run -A jsr:@sigmadigitalza/rational-release \
+    next-version deno.json
+
+<span class="tok-c"># Extract a single release&rsquo;s notes</span>
+deno run -A jsr:@sigmadigitalza/rational-release \
+  extract-section CHANGELOG.md 1.2.3</code></pre>
+
+    <p>The full subcommand list:</p>
+
+    <table>
+      <thead>
+        <tr><th>Subcommand</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>next-version</code></td>
+          <td>Read the current version from the manifest, walk commit subjects from stdin
+            (or <code>--commits-file</code>), print the next semver.</td>
+        </tr>
+        <tr>
+          <td><code>read-version</code></td>
+          <td>Print the current version from the manifest.</td>
+        </tr>
+        <tr>
+          <td><code>set-version</code></td>
+          <td>Update the version field in the manifest, preserving indentation and trailing
+            newline.</td>
+        </tr>
+        <tr>
+          <td><code>changelog-generate</code></td>
+          <td>Rewrite the <code>[Unreleased]</code> section from a JSON list of merged PRs.
+            Pass <code>--bootstrap</code> to create a Keep-a-Changelog skeleton if missing.</td>
+        </tr>
+        <tr>
+          <td><code>changelog-finalise</code></td>
+          <td>Promote <code>[Unreleased]</code> to <code>[X.Y.Z] - date</code> and prepend a
+            fresh empty block.</td>
+        </tr>
+        <tr>
+          <td><code>extract-section</code></td>
+          <td>Print the body of a single <code>[X.Y.Z]</code> section to stdout. Useful for
+            release-notes bodies.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Cloud agents and JSR</h3>
+
+    <p>
+      If you run releases from a cloud agent that operates behind a network allowlist
+      (GitHub-hosted Copilot agents, sandboxed CI runners), make sure the agent can reach
+      <code>jsr.io</code> so it can resolve and run the CLI. For pinned-tag usage you&rsquo;ll
+      also want <code>raw.githubusercontent.com</code>. On unrestricted GitHub Actions runners
+      this is already the default, so no change is needed.
+    </p>
+
+    <h2 id="pin">Pinning to an exact version</h2>
+
+    <p>
+      Workflows reference <code>@v1</code> by default &mdash; a moving tag that re-points
+      on additive changes within the v1 input shape. If you want immutability:
+    </p>
+
+<pre><code><span class="tok-k">uses</span>: <span class="tok-s">sigmadigitalza/rational-release/.github/workflows/prepare-release.yml@v1.0.0</span></code></pre>
+
+    <p>
+      Pinning loses you the implicit security patches that ride with <code>@v1</code>, but
+      you trade that for total reproducibility. Either is reasonable; pick the trade
+      consciously.
+    </p>
+
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      <a href="https://github.com/sigmadigitalza/rational-release">GitHub</a>
+      &middot;
+      <a href="https://jsr.io/@sigmadigitalza/rational-release">JSR</a>
+      &middot;
+      <a href="https://github.com/sigmadigitalza/rational-release/blob/main/CHANGELOG.md">Changelog</a>
+    </p>
+  </footer>
+
+</body>
+</html>

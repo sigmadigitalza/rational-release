@@ -7,6 +7,8 @@
  * (`$.version`); the dotted-path form is here for forward-compatibility.
  */
 
+import { readFile, writeFile } from "node:fs/promises";
+
 const PATH_RE = /^\$(?:\.[a-zA-Z_][a-zA-Z0-9_-]*)+$/;
 
 function splitPath(jsonpath: string): string[] {
@@ -66,7 +68,7 @@ export async function readManifestVersion(
   path: string,
   jsonpath: string,
 ): Promise<string> {
-  const text = await Deno.readTextFile(path);
+  const text = await readFile(path, "utf-8");
   return readVersion(JSON.parse(text), jsonpath);
 }
 
@@ -79,12 +81,12 @@ export async function writeManifestVersion(
   jsonpath: string,
   version: string,
 ): Promise<boolean> {
-  const text = await Deno.readTextFile(path);
+  const text = await readFile(path, "utf-8");
   const parsed = JSON.parse(text);
   const current = readVersion(parsed, jsonpath);
   if (current === version) return false;
   const updated = writeVersion(parsed, jsonpath, version);
   const trailing = text.endsWith("\n") ? "\n" : "";
-  await Deno.writeTextFile(path, JSON.stringify(updated, null, 2) + trailing);
+  await writeFile(path, JSON.stringify(updated, null, 2) + trailing);
   return true;
 }
