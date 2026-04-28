@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [0.2.1] - 2026-04-28
+
 ### Fixed
 
 - UTC-normalise PR mergedAt date filter (#3 by @Pushplaybang)
