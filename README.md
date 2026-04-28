@@ -10,7 +10,7 @@ without leaving GitHub Actions.
 
 ## What it does
 
-```
+```text
   ┌───────────────┐    ┌─────────────────┐    ┌──────────────┐
   │ Validate PR   │ →  │ Prepare Release │ →  │ Cut Release  │
   └───────────────┘    └─────────────────┘    └──────────────┘
@@ -167,7 +167,7 @@ The CLI underneath the workflows is also usable directly. It uses only
 `node:*` standard-library imports so it runs on Deno, Node, and Bun
 without modification. Subcommands:
 
-```
+```text
 rational-release next-version       <manifest> [--jsonpath …] [--pre-1.0-cap] [--commits-file FILE]
 rational-release read-version       <manifest> [--jsonpath …]
 rational-release set-version        <manifest> <version> [--jsonpath …]

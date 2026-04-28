@@ -5,9 +5,14 @@
  * CLI entry point. Subcommands:
  *
  *     next-version        Compute the next semver from conventional commits.
+ *     read-version        Print the current version from the manifest.
+ *     set-version         Update the manifest version in place.
  *     changelog-generate  Rewrite the [Unreleased] section from merged PRs.
  *     changelog-finalise  Promote [Unreleased] to [X.Y.Z] - date.
  *     extract-section     Print the body of a single [version] section.
+ *     validate-title      Validate a PR title.
+ *     validate-commits    Validate commit-message headers.
+ *     build-changelog     Build markdown or HTML changelog output from git history.
  *
  * Each subcommand reads explicit arguments — no env-var magic. Designed
  * to be invoked from GitHub Actions reusable workflows that wrap them.
