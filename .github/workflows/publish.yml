@@ -22,13 +22,49 @@ permissions:
 
 jobs:
   publish:
-    if: github.event.workflow_run.conclusion == 'success'
+    # Only publish when Cut Release succeeded on a release/v* branch.
+    # head_branch is the branch the triggering workflow ran on; the
+    # Cut Release flow only fires on `release/v<semver>`, so this
+    # double-checks the chain before we touch JSR with id-token: write.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'release/v')
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve published version from triggering branch
+        id: ver
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          version="${HEAD_BRANCH#release/v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Could not derive semver from branch ${HEAD_BRANCH}"
+            exit 1
+          fi
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+
+      # Checkout the tag Cut Release just pushed, not the workflow_run
+      # head_sha. Pinning to the tag makes the publish artifact match
+      # the GitHub Release exactly and avoids the CodeQL
+      # actions/untrusted-checkout pattern.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: refs/tags/${{ steps.ver.outputs.tag }}
+
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+
+      - name: Verify tag matches manifest
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          manifest_version=$(deno eval --quiet --allow-read=deno.json 'console.log(JSON.parse(Deno.readTextFileSync("deno.json")).version)')
+          if [ "v${manifest_version}" != "$TAG" ]; then
+            echo "::error::Tag $TAG does not match deno.json version v${manifest_version}. Refusing to publish."
+            exit 1
+          fi
+
       - run: deno publish
