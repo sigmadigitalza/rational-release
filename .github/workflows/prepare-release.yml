@@ -209,10 +209,11 @@ jobs:
           fi
           # Retry gh API call up to 3 times to handle transient failures.
           for attempt in 1 2 3; do
-            gh pr list --base "${GITHUB_REF_NAME:-main}" --state merged --limit 200 \
+            if gh pr list --base "${GITHUB_REF_NAME:-main}" --state merged --limit 200 \
               --json number,title,mergedAt,author \
               --jq "[ .[] | select((.mergedAt | fromdateiso8601) > $since) ]" \
-              > prs.json && break
+              > prs.json; then break; fi
+            if [ "$attempt" -eq 3 ]; then echo "::error::gh pr list failed after 3 attempts"; exit 1; fi
             echo "::warning::gh pr list attempt $attempt failed, retrying in 5s…"
             sleep 5
           done
@@ -284,7 +285,8 @@ jobs:
           set -euo pipefail
           # Retry push up to 3 times to handle transient network failures.
           for attempt in 1 2 3; do
-            git push --force origin "HEAD:refs/heads/${PREFIX}${NEXT}" && break
+            if git push --force origin "HEAD:refs/heads/${PREFIX}${NEXT}"; then break; fi
+            if [ "$attempt" -eq 3 ]; then echo "::error::git push failed after 3 attempts"; exit 1; fi
             echo "::warning::git push attempt $attempt failed, retrying in 5s…"
             sleep 5
           done

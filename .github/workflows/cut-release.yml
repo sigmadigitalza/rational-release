@@ -194,7 +194,8 @@ jobs:
             git commit -m "chore(release): finalise v${VERSION}"
             # Retry push up to 3 times to handle transient network failures.
             for attempt in 1 2 3; do
-              git push origin HEAD && break
+              if git push origin HEAD; then break; fi
+              if [ "$attempt" -eq 3 ]; then echo "::error::git push failed after 3 attempts"; exit 1; fi
               echo "::warning::git push attempt $attempt failed, retrying in 5s…"
               sleep 5
             done
@@ -210,7 +211,8 @@ jobs:
           git tag "v${VERSION}"
           # Retry push up to 3 times to handle transient network failures.
           for attempt in 1 2 3; do
-            git push origin "v${VERSION}" && break
+            if git push origin "v${VERSION}"; then break; fi
+            if [ "$attempt" -eq 3 ]; then echo "::error::tag push failed after 3 attempts"; exit 1; fi
             echo "::warning::tag push attempt $attempt failed, retrying in 5s…"
             sleep 5
           done
@@ -251,9 +253,10 @@ jobs:
             echo
             # Retry gh API call up to 3 times to handle transient failures.
             for attempt in 1 2 3; do
-              gh pr list --state merged --base "${GITHUB_REF_NAME:-main}" --limit 200 \
+              if gh pr list --state merged --base "${GITHUB_REF_NAME:-main}" --limit 200 \
                 --json number,title,author,mergedAt \
-                --jq "[ .[] | select((.mergedAt | fromdateiso8601) > $since) ] | .[] | \"- \(.title) (#\(.number) by @\(.author.login))\"" && break
+                --jq "[ .[] | select((.mergedAt | fromdateiso8601) > $since) ] | .[] | \"- \(.title) (#\(.number) by @\(.author.login))\""; then break; fi
+              if [ "$attempt" -eq 3 ]; then echo "::warning::gh pr list failed after 3 attempts, continuing without PR list" >&2; break; fi
               echo "::warning::gh pr list attempt $attempt failed, retrying in 5s…" >&2
               sleep 5
             done
@@ -280,10 +283,11 @@ jobs:
           done <<< "$ARTEFACTS"
           # Retry release creation up to 3 times to handle transient API failures.
           for attempt in 1 2 3; do
-            gh release create "v${VERSION}" \
+            if gh release create "v${VERSION}" \
               --title "v${VERSION}" \
               --notes-file release-notes.md \
-              "${assets[@]}" && break
+              "${assets[@]}"; then break; fi
+            if [ "$attempt" -eq 3 ]; then echo "::error::gh release create failed after 3 attempts"; exit 1; fi
             echo "::warning::gh release create attempt $attempt failed, retrying in 5s…"
             sleep 5
           done
