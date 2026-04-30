@@ -97,6 +97,13 @@ tags. A naïve `on: push: tags: [v*]` publish workflow won't run after a
 release is cut. Trigger your publish workflow with `workflow_run` on
 `Cut Release` completion instead — see [`docs/examples/publish-jsr.yml`](docs/examples/publish-jsr.yml).
 
+`workflow_run` jobs run with repo secrets and (for JSR) `id-token: write`,
+so the example derives the version from the triggering branch
+(`release/vX.Y.Z`), checks out the freshly-pushed tag, and verifies the
+tag matches the manifest before publishing. This avoids the CodeQL
+`actions/untrusted-checkout` pattern that fires when a privileged
+`workflow_run` checks out `head_sha` directly.
+
 [1]: https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow
 
 ## Configuration reference

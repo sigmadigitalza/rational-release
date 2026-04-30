@@ -10,6 +10,13 @@
 # Drop into your repo as .github/workflows/publish-jsr.yml. Make sure
 # the workflow name in `workflows:` below matches the `name:` in the
 # wrapper that calls cut-release.yml (default in our examples: "Cut Release").
+#
+# Security note: `workflow_run` runs in a privileged context (it has
+# secrets and id-token access). Rather than checking out the triggering
+# workflow's `head_sha` (which CodeQL flags as actions/untrusted-checkout
+# because it can be attacker-influenced), we derive the version from
+# `head_branch` (release/vX.Y.Z), check out the freshly-pushed tag, and
+# verify the tag matches the manifest before publishing.
 
 name: Publish to JSR
 
@@ -24,11 +31,41 @@ permissions:
 
 jobs:
   publish:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.head_branch, 'release/v')
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve published version from triggering branch
+        id: ver
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          version="${HEAD_BRANCH#release/v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Could not derive semver from branch ${HEAD_BRANCH}"
+            exit 1
+          fi
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.ver.outputs.tag }}
+
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+
+      - name: Verify tag matches manifest
+        env:
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          set -euo pipefail
+          manifest_version=$(deno eval --quiet 'console.log(JSON.parse(Deno.readTextFileSync("deno.json")).version)')
+          if [ "v${manifest_version}" != "$TAG" ]; then
+            echo "::error::Tag $TAG does not match deno.json version v${manifest_version}. Refusing to publish."
+            exit 1
+          fi
+
       - run: deno publish

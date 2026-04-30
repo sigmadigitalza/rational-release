@@ -129,7 +129,15 @@
       <code>push: tags: [v*]</code> will never run.
     </p>
 
-    <p>The fix is <code>workflow_run</code> &mdash; allowed to fire from the same token-pushed event:</p>
+    <p>
+      The fix is <code>workflow_run</code> &mdash; allowed to fire from the same token-pushed event.
+      <code>workflow_run</code> jobs run in a privileged context (they have repo secrets and, for
+      JSR, <code>id-token: write</code>), so we don&rsquo;t blindly check out the triggering
+      workflow&rsquo;s <code>head_sha</code> &mdash; CodeQL flags that as
+      <em>actions/untrusted-checkout</em>. Instead, derive the version from the triggering
+      branch (<code>release/vX.Y.Z</code>), check out the freshly-pushed tag, and verify the
+      tag matches the manifest before publishing:
+    </p>
 
 <pre><code><span class="tok-k">name</span>: <span class="tok-s">Publish to JSR</span>
 <span class="tok-k">on</span>:
@@ -141,20 +149,39 @@
   <span class="tok-k">id-token</span>: write
 <span class="tok-k">jobs</span>:
   <span class="tok-k">publish</span>:
-    <span class="tok-k">if</span>: <span class="tok-s">${{ github.event.workflow_run.conclusion == 'success' }}</span>
+    <span class="tok-k">if</span>: <span class="tok-s">&gt;-</span>
+      <span class="tok-s">github.event.workflow_run.conclusion == 'success' &amp;&amp;</span>
+      <span class="tok-s">startsWith(github.event.workflow_run.head_branch, 'release/v')</span>
     <span class="tok-k">runs-on</span>: <span class="tok-s">ubuntu-latest</span>
     <span class="tok-k">steps</span>:
+      - <span class="tok-k">id</span>: <span class="tok-s">ver</span>
+        <span class="tok-k">env</span>: { <span class="tok-k">HEAD_BRANCH</span>: <span class="tok-s">${{ github.event.workflow_run.head_branch }}</span> }
+        <span class="tok-k">run</span>: |
+          <span class="tok-s">set -euo pipefail</span>
+          <span class="tok-s">version="${HEAD_BRANCH#release/v}"</span>
+          <span class="tok-s">[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::bad branch ${HEAD_BRANCH}"; exit 1; }</span>
+          <span class="tok-s">echo "tag=v${version}" &gt;&gt; "$GITHUB_OUTPUT"</span>
       - <span class="tok-k">uses</span>: <span class="tok-s">actions/checkout@v4</span>
+        <span class="tok-k">with</span>: { <span class="tok-k">ref</span>: <span class="tok-s">refs/tags/${{ steps.ver.outputs.tag }}</span> }
       - <span class="tok-k">uses</span>: <span class="tok-s">denoland/setup-deno@v2</span>
         <span class="tok-k">with</span>: { <span class="tok-k">deno-version</span>: <span class="tok-s">v2.x</span> }
+      - <span class="tok-k">env</span>: { <span class="tok-k">TAG</span>: <span class="tok-s">${{ steps.ver.outputs.tag }}</span> }
+        <span class="tok-k">run</span>: |
+          <span class="tok-s">set -euo pipefail</span>
+          <span class="tok-s">v=$(deno eval --quiet 'console.log(JSON.parse(Deno.readTextFileSync("deno.json")).version)')</span>
+          <span class="tok-s">[ "v${v}" = "$TAG" ] || { echo "::error::tag $TAG != manifest v${v}"; exit 1; }</span>
       - <span class="tok-k">run</span>: <span class="tok-s">deno publish</span></code></pre>
 
-    <p>For npm:</p>
+    <p>For npm, swap the last three steps for:</p>
 
 <pre><code>      - <span class="tok-k">uses</span>: <span class="tok-s">actions/setup-node@v4</span>
         <span class="tok-k">with</span>:
           <span class="tok-k">node-version</span>: <span class="tok-s">"22"</span>
           <span class="tok-k">registry-url</span>: <span class="tok-s">"https://registry.npmjs.org"</span>
+      - <span class="tok-k">env</span>: { <span class="tok-k">TAG</span>: <span class="tok-s">${{ steps.ver.outputs.tag }}</span> }
+        <span class="tok-k">run</span>: |
+          <span class="tok-s">v=$(node -p "require('./package.json').version")</span>
+          <span class="tok-s">[ "v${v}" = "$TAG" ] || { echo "::error::tag $TAG != manifest v${v}"; exit 1; }</span>
       - <span class="tok-k">run</span>: <span class="tok-s">npm publish --provenance --access public</span>
         <span class="tok-k">env</span>:
           <span class="tok-k">NODE_AUTH_TOKEN</span>: <span class="tok-s">${{ secrets.NPM_TOKEN }}</span></code></pre>

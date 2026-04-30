@@ -7,6 +7,9 @@ on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
 
+permissions:
+  contents: read
+
 jobs:
   conventional-commits:
     uses: sigmadigitalza/rational-release/.github/workflows/validate-pr.yml@v1
