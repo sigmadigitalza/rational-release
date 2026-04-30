@@ -61,7 +61,7 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           set -euo pipefail
-          manifest_version=$(deno eval --allow-read=deno.json --quiet 'console.log(JSON.parse(Deno.readTextFileSync("deno.json")).version)')
+          manifest_version=$(deno eval --quiet --allow-read=deno.json 'console.log(JSON.parse(Deno.readTextFileSync("deno.json")).version)')
           if [ "v${manifest_version}" != "$TAG" ]; then
             echo "::error::Tag $TAG does not match deno.json version v${manifest_version}. Refusing to publish."
             exit 1
