@@ -168,7 +168,7 @@
       - <span class="tok-k">env</span>: { <span class="tok-k">TAG</span>: <span class="tok-s">${{ steps.ver.outputs.tag }}</span> }
         <span class="tok-k">run</span>: |
           <span class="tok-s">set -euo pipefail</span>
-          <span class="tok-s">v=$(deno eval --quiet 'console.log(JSON.parse(Deno.readTextFileSync("deno.json")).version)')</span>
+          <span class="tok-s">v=$(deno eval --quiet --allow-read=deno.json 'console.log(JSON.parse(Deno.readTextFileSync("deno.json")).version)')</span>
           <span class="tok-s">[ "v${v}" = "$TAG" ] || { echo "::error::tag $TAG != manifest v${v}"; exit 1; }</span>
       - <span class="tok-k">run</span>: <span class="tok-s">deno publish</span></code></pre>
 
