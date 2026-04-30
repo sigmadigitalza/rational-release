@@ -50,12 +50,12 @@ jobs:
       # head_sha. Pinning to the tag makes the publish artifact match
       # the GitHub Release exactly and avoids the CodeQL
       # actions/untrusted-checkout pattern.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: refs/tags/${{ steps.ver.outputs.tag }}
           persist-credentials: false
 
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
         with:
           deno-version: v2.x
           cache: true

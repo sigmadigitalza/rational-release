@@ -63,7 +63,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout consumer repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -75,7 +75,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Install Deno
-        uses: denoland/setup-deno@v2
+        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
         with:
           deno-version: v2.x
           cache: true
@@ -171,18 +171,24 @@ jobs:
         # docs/changelog.html) can attribute commits to the upcoming
         # release rather than the Unreleased bucket. RR_PREV_TAG is the
         # tag the bump is being computed against (empty on first release).
+        #
+        # Security: each command is executed via bash -c in an isolated
+        # subshell rather than eval, preventing unintended variable/function
+        # leakage between commands. Inputs come from the caller's workflow
+        # file (trusted) but defence-in-depth avoids eval pitfalls.
         shell: bash
         env:
           RR_NEXT_VERSION: ${{ steps.bump.outputs.next }}
           RR_PREV_TAG: ${{ steps.prev.outputs.tag }}
+          PRE_TASKS: ${{ inputs.pre-tasks }}
         run: |
           set -euo pipefail
           while IFS= read -r line; do
             [ -z "$line" ] && continue
             echo "::group::$line"
-            eval "$line"
+            bash -c "set -euo pipefail; $line"
             echo "::endgroup::"
-          done <<< "${{ inputs.pre-tasks }}"
+          done <<< "$PRE_TASKS"
 
       - name: Apply version bump to manifest
         if: steps.gate.outputs.proceed == 'true' && steps.bump.outputs.bumped == 'true'
@@ -234,6 +240,8 @@ jobs:
       - name: Mirror changelog
         if: steps.gate.outputs.proceed == 'true' && inputs.mirror-paths != ''
         shell: bash
+        env:
+          MIRROR_PATHS: ${{ inputs.mirror-paths }}
         run: |
           set -euo pipefail
           while IFS= read -r line; do
@@ -243,7 +251,7 @@ jobs:
             mkdir -p "$(dirname "$dst")"
             cp "$src" "$dst"
             echo "Mirrored $src → $dst"
-          done <<< "${{ inputs.mirror-paths }}"
+          done <<< "$MIRROR_PATHS"
 
       - name: Stage and commit prep changes
         id: stage
