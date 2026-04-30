@@ -69,6 +69,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure git identity
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -81,7 +82,9 @@ jobs:
 
       - name: Resolve previous release tag
         id: prev
+        shell: bash
         run: |
+          set -euo pipefail
           prev=$(git tag --list 'v*' --sort=-v:refname | head -n 1 || true)
           echo "tag=$prev" >> "$GITHUB_OUTPUT"
           if [ -n "$prev" ]; then
@@ -91,6 +94,7 @@ jobs:
           fi
 
       - name: Collect commit subjects since previous tag
+        shell: bash
         env:
           PREV_TAG: ${{ steps.prev.outputs.tag }}
         run: |
@@ -104,6 +108,7 @@ jobs:
 
       - name: Compute next version
         id: bump
+        shell: bash
         env:
           MANIFEST: ${{ inputs.manifest-path }}
           JSONPATH: ${{ inputs.manifest-jsonpath }}
@@ -112,19 +117,29 @@ jobs:
         run: |
           set -euo pipefail
           current=$(deno run --allow-read "$CLI" read-version "$MANIFEST" --jsonpath "$JSONPATH")
+          if [ -z "$current" ]; then
+            echo "::error::read-version returned empty string from ${MANIFEST}"
+            exit 1
+          fi
           flags=( --jsonpath "$JSONPATH" --commits-file commits.txt )
           [ "$PRE1" = "true" ] && flags+=( --pre-1.0-cap )
           next=$(deno run --allow-read "$CLI" next-version "$MANIFEST" "${flags[@]}")
+          if [ -z "$next" ]; then
+            echo "::error::next-version returned empty string"
+            exit 1
+          fi
           echo "current=$current" | tee -a "$GITHUB_OUTPUT"
           echo "next=$next" | tee -a "$GITHUB_OUTPUT"
           if [ "$current" = "$next" ]; then
             echo "bumped=false" >> "$GITHUB_OUTPUT"
           else
             echo "bumped=true" >> "$GITHUB_OUTPUT"
+            echo "### 📦 Version bump: \`${current}\` → \`${next}\`" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Bail out if nothing to release
         id: gate
+        shell: bash
         env:
           PREV_TAG: ${{ steps.prev.outputs.tag }}
           CURRENT: ${{ steps.bump.outputs.current }}
@@ -156,6 +171,7 @@ jobs:
         # docs/changelog.html) can attribute commits to the upcoming
         # release rather than the Unreleased bucket. RR_PREV_TAG is the
         # tag the bump is being computed against (empty on first release).
+        shell: bash
         env:
           RR_NEXT_VERSION: ${{ steps.bump.outputs.next }}
           RR_PREV_TAG: ${{ steps.prev.outputs.tag }}
@@ -170,6 +186,7 @@ jobs:
 
       - name: Apply version bump to manifest
         if: steps.gate.outputs.proceed == 'true' && steps.bump.outputs.bumped == 'true'
+        shell: bash
         env:
           MANIFEST: ${{ inputs.manifest-path }}
           JSONPATH: ${{ inputs.manifest-jsonpath }}
@@ -179,6 +196,7 @@ jobs:
 
       - name: Collect merged PRs for changelog
         if: steps.gate.outputs.proceed == 'true'
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PREV_TAG: ${{ steps.prev.outputs.tag }}
@@ -189,13 +207,19 @@ jobs:
           else
             since=0
           fi
-          gh pr list --base "${GITHUB_REF_NAME:-main}" --state merged --limit 200 \
-            --json number,title,mergedAt,author \
-            --jq "[ .[] | select((.mergedAt | fromdateiso8601) > $since) ]" \
-            > prs.json
+          # Retry gh API call up to 3 times to handle transient failures.
+          for attempt in 1 2 3; do
+            gh pr list --base "${GITHUB_REF_NAME:-main}" --state merged --limit 200 \
+              --json number,title,mergedAt,author \
+              --jq "[ .[] | select((.mergedAt | fromdateiso8601) > $since) ]" \
+              > prs.json && break
+            echo "::warning::gh pr list attempt $attempt failed, retrying in 5s…"
+            sleep 5
+          done
 
       - name: Regenerate [Unreleased] section
         if: steps.gate.outputs.proceed == 'true'
+        shell: bash
         env:
           CLI: ${{ inputs.cli }}
           CHANGELOG: ${{ inputs.changelog-path }}
@@ -208,6 +232,7 @@ jobs:
 
       - name: Mirror changelog
         if: steps.gate.outputs.proceed == 'true' && inputs.mirror-paths != ''
+        shell: bash
         run: |
           set -euo pipefail
           while IFS= read -r line; do
@@ -222,6 +247,7 @@ jobs:
       - name: Stage and commit prep changes
         id: stage
         if: steps.gate.outputs.proceed == 'true'
+        shell: bash
         env:
           MANIFEST: ${{ inputs.manifest-path }}
           CHANGELOG: ${{ inputs.changelog-path }}
@@ -250,16 +276,26 @@ jobs:
 
       - name: Force-push release branch
         if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true'
+        shell: bash
         env:
           PREFIX: ${{ inputs.release-branch-prefix }}
           NEXT: ${{ steps.bump.outputs.next }}
-        run: git push --force origin "HEAD:refs/heads/${PREFIX}${NEXT}"
+        run: |
+          set -euo pipefail
+          # Retry push up to 3 times to handle transient network failures.
+          for attempt in 1 2 3; do
+            git push --force origin "HEAD:refs/heads/${PREFIX}${NEXT}" && break
+            echo "::warning::git push attempt $attempt failed, retrying in 5s…"
+            sleep 5
+          done
 
       - name: Extract [Unreleased] for PR body
         if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true'
+        shell: bash
         env:
           CHANGELOG: ${{ inputs.changelog-path }}
         run: |
+          set -euo pipefail
           awk '
             /^## \[Unreleased\]/ {flag=1; next}
             flag && /^## \[/ {exit}
@@ -269,6 +305,7 @@ jobs:
 
       - name: Open or update release PR
         if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true'
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PREFIX: ${{ inputs.release-branch-prefix }}
@@ -293,6 +330,8 @@ jobs:
           existing=$(gh pr list --head "$branch" --base "${GITHUB_REF_NAME:-main}" --state open --json number --jq '.[0].number' || true)
           if [ -n "$existing" ]; then
             gh pr edit "$existing" --title "$title" --body-file body.md
+            echo "### 🔄 Updated release PR #${existing}" >> "$GITHUB_STEP_SUMMARY"
           else
             gh pr create --base "${GITHUB_REF_NAME:-main}" --head "$branch" --title "$title" --body-file body.md
+            echo "### 🆕 Opened release PR for v${NEXT}" >> "$GITHUB_STEP_SUMMARY"
           fi

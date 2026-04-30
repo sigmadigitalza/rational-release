@@ -56,6 +56,7 @@ jobs:
 
       - name: Validate PR title
         id: title
+        shell: bash
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           REQUIRE_SCOPE: ${{ inputs.require-scope }}
@@ -78,6 +79,7 @@ jobs:
       - name: Validate commit messages
         id: commits
         if: inputs.validate-commits
+        shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -102,6 +104,7 @@ jobs:
 
       - name: Gate
         if: inputs.gate
+        shell: bash
         env:
           TITLE_OK: ${{ steps.title.outputs.ok }}
           COMMITS_OK: ${{ steps.commits.outputs.ok }}

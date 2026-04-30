@@ -34,6 +34,7 @@ jobs:
     steps:
       - name: Resolve published version from triggering branch
         id: ver
+        shell: bash
         env:
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
@@ -60,11 +61,16 @@ jobs:
           cache: true
 
       - name: Verify tag matches manifest
+        shell: bash
         env:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           set -euo pipefail
           manifest_version=$(deno eval --quiet --allow-read=deno.json 'console.log(JSON.parse(Deno.readTextFileSync("deno.json")).version)')
+          if [ -z "$manifest_version" ]; then
+            echo "::error::Could not read version from deno.json"
+            exit 1
+          fi
           if [ "v${manifest_version}" != "$TAG" ]; then
             echo "::error::Tag $TAG does not match deno.json version v${manifest_version}. Refusing to publish."
             exit 1

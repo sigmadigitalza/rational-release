@@ -66,6 +66,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure git identity
+        shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -78,6 +79,7 @@ jobs:
 
       - name: Resolve version from branch name
         id: version
+        shell: bash
         env:
           PREFIX: ${{ inputs.release-branch-prefix }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
@@ -89,8 +91,10 @@ jobs:
             exit 1
           fi
           echo "version=$version" | tee -a "$GITHUB_OUTPUT"
+          echo "### 🏷️ Release version: \`v${version}\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cross-check version against manifest
+        shell: bash
         env:
           MANIFEST: ${{ inputs.manifest-path }}
           JSONPATH: ${{ inputs.manifest-jsonpath }}
@@ -99,15 +103,21 @@ jobs:
         run: |
           set -euo pipefail
           actual=$(deno run --allow-read "$CLI" read-version "$MANIFEST" --jsonpath "$JSONPATH")
+          if [ -z "$actual" ]; then
+            echo "::error::read-version returned empty string from ${MANIFEST}"
+            exit 1
+          fi
           if [ "$actual" != "$VERSION" ]; then
             echo "::error::Branch says v${VERSION} but ${MANIFEST} has ${actual}. Refusing to cut."
             exit 1
           fi
 
       - name: Refuse to re-tag existing version
+        shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          set -euo pipefail
           if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
             echo "::error::Tag v${VERSION} already exists locally."
             exit 1
@@ -119,11 +129,14 @@ jobs:
 
       - name: Resolve previous release tag
         id: prev
+        shell: bash
         run: |
+          set -euo pipefail
           prev=$(git tag --list 'v*' --sort=-v:refname | head -n 1 || true)
           echo "tag=$prev" >> "$GITHUB_OUTPUT"
 
       - name: Finalise changelog
+        shell: bash
         env:
           CLI: ${{ inputs.cli }}
           CHANGELOG: ${{ inputs.changelog-path }}
@@ -132,6 +145,7 @@ jobs:
 
       - name: Mirror changelog
         if: inputs.mirror-paths != ''
+        shell: bash
         run: |
           set -euo pipefail
           while IFS= read -r line; do
@@ -144,6 +158,7 @@ jobs:
 
       - name: Extract release notes for this version
         id: notes
+        shell: bash
         env:
           CLI: ${{ inputs.cli }}
           CHANGELOG: ${{ inputs.changelog-path }}
@@ -155,6 +170,7 @@ jobs:
 
       - name: Stage and commit finalisation
         id: stage
+        shell: bash
         env:
           CHANGELOG: ${{ inputs.changelog-path }}
           MIRRORS: ${{ inputs.mirror-paths }}
@@ -176,19 +192,32 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             git commit -m "chore(release): finalise v${VERSION}"
-            git push origin HEAD
+            # Retry push up to 3 times to handle transient network failures.
+            for attempt in 1 2 3; do
+              git push origin HEAD && break
+              echo "::warning::git push attempt $attempt failed, retrying in 5s…"
+              sleep 5
+            done
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Tag release
+        shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          set -euo pipefail
           git tag "v${VERSION}"
-          git push origin "v${VERSION}"
+          # Retry push up to 3 times to handle transient network failures.
+          for attempt in 1 2 3; do
+            git push origin "v${VERSION}" && break
+            echo "::warning::tag push attempt $attempt failed, retrying in 5s…"
+            sleep 5
+          done
 
       - name: Run artefact-task
         if: inputs.artefact-task != ''
+        shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
           PREV_TAG: ${{ steps.prev.outputs.tag }}
@@ -202,6 +231,7 @@ jobs:
           done <<< "${{ inputs.artefact-task }}"
 
       - name: Append PRs since previous tag to release notes
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PREV_TAG: ${{ steps.prev.outputs.tag }}
@@ -219,9 +249,14 @@ jobs:
             echo
             echo "### Pull requests in this release"
             echo
-            gh pr list --state merged --base "${GITHUB_REF_NAME:-main}" --limit 200 \
-              --json number,title,author,mergedAt \
-              --jq "[ .[] | select((.mergedAt | fromdateiso8601) > $since) ] | .[] | \"- \(.title) (#\(.number) by @\(.author.login))\""
+            # Retry gh API call up to 3 times to handle transient failures.
+            for attempt in 1 2 3; do
+              gh pr list --state merged --base "${GITHUB_REF_NAME:-main}" --limit 200 \
+                --json number,title,author,mergedAt \
+                --jq "[ .[] | select((.mergedAt | fromdateiso8601) > $since) ] | .[] | \"- \(.title) (#\(.number) by @\(.author.login))\"" && break
+              echo "::warning::gh pr list attempt $attempt failed, retrying in 5s…" >&2
+              sleep 5
+            done
             if [ -n "$compare" ]; then
               echo
               echo "**Full diff:** https://github.com/${{ github.repository }}/compare/${compare}"
@@ -229,6 +264,7 @@ jobs:
           } >> release-notes.md
 
       - name: Create GitHub Release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -242,12 +278,19 @@ jobs:
               [ -e "$f" ] && assets+=( "$f" )
             done
           done <<< "$ARTEFACTS"
-          gh release create "v${VERSION}" \
-            --title "v${VERSION}" \
-            --notes-file release-notes.md \
-            "${assets[@]}"
+          # Retry release creation up to 3 times to handle transient API failures.
+          for attempt in 1 2 3; do
+            gh release create "v${VERSION}" \
+              --title "v${VERSION}" \
+              --notes-file release-notes.md \
+              "${assets[@]}" && break
+            echo "::warning::gh release create attempt $attempt failed, retrying in 5s…"
+            sleep 5
+          done
+          echo "### ✅ GitHub Release \`v${VERSION}\` created" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Delete release branch
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
