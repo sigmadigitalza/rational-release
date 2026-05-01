@@ -42,18 +42,21 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout PR
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       - name: Install Deno
-        uses: denoland/setup-deno@v2
+        uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
         with:
           deno-version: v2.x
+          cache: true
 
       - name: Validate PR title
         id: title
+        shell: bash
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           REQUIRE_SCOPE: ${{ inputs.require-scope }}
@@ -76,6 +79,7 @@ jobs:
       - name: Validate commit messages
         id: commits
         if: inputs.validate-commits
+        shell: bash
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -100,6 +104,7 @@ jobs:
 
       - name: Gate
         if: inputs.gate
+        shell: bash
         env:
           TITLE_OK: ${{ steps.title.outputs.ok }}
           COMMITS_OK: ${{ steps.commits.outputs.ok }}

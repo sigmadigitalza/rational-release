@@ -30,9 +30,11 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       startsWith(github.event.workflow_run.head_branch, 'release/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Resolve published version from triggering branch
         id: ver
+        shell: bash
         env:
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
@@ -48,20 +50,27 @@ jobs:
       # head_sha. Pinning to the tag makes the publish artifact match
       # the GitHub Release exactly and avoids the CodeQL
       # actions/untrusted-checkout pattern.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: refs/tags/${{ steps.ver.outputs.tag }}
+          persist-credentials: false
 
-      - uses: denoland/setup-deno@v2
+      - uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2.0.4
         with:
           deno-version: v2.x
+          cache: true
 
       - name: Verify tag matches manifest
+        shell: bash
         env:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           set -euo pipefail
           manifest_version=$(deno eval --quiet --allow-read=deno.json 'console.log(JSON.parse(Deno.readTextFileSync("deno.json")).version)')
+          if [ -z "$manifest_version" ]; then
+            echo "::error::Could not read version from deno.json"
+            exit 1
+          fi
           if [ "v${manifest_version}" != "$TAG" ]; then
             echo "::error::Tag $TAG does not match deno.json version v${manifest_version}. Refusing to publish."
             exit 1
