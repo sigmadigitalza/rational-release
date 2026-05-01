@@ -129,15 +129,15 @@ tag matches the manifest before publishing. This avoids the CodeQL
 | Input | Default | Purpose |
 |---|---|---|
 | `manifest-path` | `deno.json` | (Same as above; cross-checked against branch name.) |
-| `manifest-jsonpath` | `$.version` | |
-| `release-branch-prefix` | `release/v` | |
-| `changelog-path` | `CHANGELOG.md` | |
-| `mirror-paths` | _(empty)_ | |
-| `commit-paths` | _(empty)_ | |
+| `manifest-jsonpath` | `$.version` | Dot-path inside the manifest. |
+| `release-branch-prefix` | `release/v` | Prefix for the release branch name. |
+| `changelog-path` | `CHANGELOG.md` | Path to the canonical changelog. |
+| `mirror-paths` | _(empty)_ | `src:dst` pairs to copy after changelog finalisation. |
+| `commit-paths` | _(empty)_ | Extra paths to `git add` into the finalisation commit. |
 | `artefact-task` | _(empty)_ | Shell command(s) run after the tag is created. |
 | `artefact-paths` | _(empty)_ | Globs of files to attach to the GitHub Release. |
 | `cli` | `jsr:@sigmadigitalza/rational-release@^1` | CLI source. JSR specifier (default) or local path (`./cli/mod.ts`) for dogfooding. |
-| `runs-on` | `ubuntu-latest` | |
+| `runs-on` | `ubuntu-latest` | Runner label. |
 
 ### `validate-pr.yml`
 
@@ -147,7 +147,7 @@ tag matches the manifest before publishing. This avoids the CodeQL
 | `gate` | `false` | Fail the workflow on validation error (vs report-only). |
 | `validate-commits` | `true` | Also validate every commit message in the PR. |
 | `cli` | `jsr:@sigmadigitalza/rational-release@^1` | CLI source. JSR specifier (default) or local path (`./cli/mod.ts`) for dogfooding. |
-| `runs-on` | `ubuntu-latest` | |
+| `runs-on` | `ubuntu-latest` | Runner label. |
 
 ## Bump rules
 
