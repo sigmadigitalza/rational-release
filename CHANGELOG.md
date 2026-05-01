@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [1.3.2] - 2026-05-01
+
 ### Fixed
 
 - use jq for manifest read; add workflow_dispatch break-glass (#23 by @Pushplaybang)
