@@ -221,10 +221,9 @@ jobs:
 
       - name: Run artefact-task
         if: inputs.artefact-task != ''
-        # Security: each command is executed via bash -c in an isolated
-        # subshell rather than eval, preventing unintended variable/function
-        # leakage between commands. VERSION and PREV_TAG are exported so
-        # they remain available to each subshell invocation.
+        # Security: the task block is executed in a single subshell via
+        # stdin (not eval), so state (cd, variables) persists across lines
+        # while still avoiding eval-based injection surfaces.
         shell: bash
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -233,12 +232,7 @@ jobs:
         run: |
           set -euo pipefail
           export VERSION PREV_TAG
-          while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            echo "::group::$line"
-            bash -c "set -euo pipefail; $line"
-            echo "::endgroup::"
-          done <<< "$ARTEFACT_TASK"
+          bash -euo pipefail <<< "$ARTEFACT_TASK"
 
       - name: Append PRs since previous tag to release notes
         shell: bash

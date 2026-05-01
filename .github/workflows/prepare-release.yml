@@ -172,10 +172,10 @@ jobs:
         # release rather than the Unreleased bucket. RR_PREV_TAG is the
         # tag the bump is being computed against (empty on first release).
         #
-        # Security: each command is executed via bash -c in an isolated
-        # subshell rather than eval, preventing unintended variable/function
-        # leakage between commands. Inputs come from the caller's workflow
-        # file (trusted) but defence-in-depth avoids eval pitfalls.
+        # Security: the task block is executed in a single subshell via
+        # stdin (not eval), so state (cd, variables) persists across lines
+        # while still avoiding eval-based injection surfaces. Inputs come
+        # from the caller's workflow file (trusted).
         shell: bash
         env:
           RR_NEXT_VERSION: ${{ steps.bump.outputs.next }}
@@ -183,12 +183,7 @@ jobs:
           PRE_TASKS: ${{ inputs.pre-tasks }}
         run: |
           set -euo pipefail
-          while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            echo "::group::$line"
-            bash -c "set -euo pipefail; $line"
-            echo "::endgroup::"
-          done <<< "$PRE_TASKS"
+          bash -euo pipefail <<< "$PRE_TASKS"
 
       - name: Apply version bump to manifest
         if: steps.gate.outputs.proceed == 'true' && steps.bump.outputs.bumped == 'true'
