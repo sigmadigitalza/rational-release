@@ -144,26 +144,14 @@ jobs:
           PREV_TAG: ${{ steps.prev.outputs.tag }}
           CURRENT: ${{ steps.bump.outputs.current }}
           BUMPED: ${{ steps.bump.outputs.bumped }}
+          CLI: ${{ inputs.cli }}
         run: |
           set -euo pipefail
-          # If the manifest is already ahead of the latest tag, a release is
-          # in flight (release PR merged but cut-release hasn't tagged yet,
-          # or someone manually bumped). Don't open another release PR on top.
-          if [ -n "$PREV_TAG" ]; then
-            prev_v="${PREV_TAG#v}"
-            smaller=$(printf '%s\n%s\n' "$prev_v" "$CURRENT" | sort -V | head -n1)
-            if [ "$CURRENT" != "$prev_v" ] && [ "$smaller" = "$prev_v" ]; then
-              echo "::notice::Manifest $CURRENT is ahead of $PREV_TAG — release in flight, skipping."
-              echo "proceed=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          if [ -z "$PREV_TAG" ] || [ "$BUMPED" = "true" ]; then
-            echo "proceed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::No version-bumping commits since $PREV_TAG — skipping."
-            echo "proceed=false" >> "$GITHUB_OUTPUT"
-          fi
+          deno run --allow-read --allow-env --allow-write="$GITHUB_OUTPUT" \
+            "$CLI" release-gate \
+              --prev-tag "$PREV_TAG" \
+              --current "$CURRENT" \
+              --bumped "$BUMPED"
 
       - name: Run pre-tasks
         if: steps.gate.outputs.proceed == 'true' && inputs.pre-tasks != ''
@@ -237,16 +225,8 @@ jobs:
         shell: bash
         env:
           MIRROR_PATHS: ${{ inputs.mirror-paths }}
-        run: |
-          set -euo pipefail
-          while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            src="${line%%:*}"
-            dst="${line#*:}"
-            mkdir -p "$(dirname "$dst")"
-            cp "$src" "$dst"
-            echo "Mirrored $src → $dst"
-          done <<< "$MIRROR_PATHS"
+          CLI: ${{ inputs.cli }}
+        run: deno run --allow-read --allow-write --allow-env "$CLI" mirror
 
       - name: Stage and commit prep changes
         id: stage
@@ -299,13 +279,11 @@ jobs:
         shell: bash
         env:
           CHANGELOG: ${{ inputs.changelog-path }}
+          CLI: ${{ inputs.cli }}
         run: |
           set -euo pipefail
-          awk '
-            /^## \[Unreleased\]/ {flag=1; next}
-            flag && /^## \[/ {exit}
-            flag {print}
-          ' "$CHANGELOG" > unreleased.md
+          deno run --allow-read "$CLI" extract-section "$CHANGELOG" Unreleased \
+            > unreleased.md
           [ -s unreleased.md ] || echo "_No entries in [Unreleased]._" > unreleased.md
 
       - name: Open or update release PR

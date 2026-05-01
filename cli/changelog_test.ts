@@ -179,6 +179,51 @@ Deno.test("extractSection: missing version → empty string", () => {
   eq(extractSection("# Changelog\n\n## [Unreleased]\n", "9.9.9"), "");
 });
 
+Deno.test("extractSection: extracts [Unreleased] body without bleeding", () => {
+  const cl = `# Changelog
+
+## [Unreleased]
+
+### Added
+
+- pending entry
+
+## [1.0.0] - 2026-01-01
+
+### Added
+
+- shipped
+`;
+  const body = extractSection(cl, "Unreleased");
+  if (!body.includes("- pending entry")) {
+    throw new Error("Missing entry from [Unreleased]");
+  }
+  if (body.includes("- shipped")) {
+    throw new Error("Bled into the [1.0.0] section below");
+  }
+});
+
+Deno.test("extractSection: empty [Unreleased] returns empty body", () => {
+  const cl = `# Changelog
+
+## [Unreleased]
+
+## [1.0.0] - 2026-01-01
+
+- shipped
+`;
+  const body = extractSection(cl, "Unreleased");
+  if (body.includes("shipped")) {
+    throw new Error("Bled into [1.0.0]");
+  }
+  // Body should be empty or whitespace only — the awk block in the workflow
+  // would have produced the same result (empty), and the workflow falls back
+  // to a placeholder when the file is empty.
+  if (body.trim().length !== 0) {
+    throw new Error(`Expected empty body, got: ${JSON.stringify(body)}`);
+  }
+});
+
 Deno.test("bootstrapTemplate: produces a valid Keep-a-Changelog skeleton", () => {
   const template = bootstrapTemplate();
   // Must contain the canonical header and an empty [Unreleased] section

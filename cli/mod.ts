@@ -47,6 +47,13 @@ import {
   validateCommits,
   validateTitle,
 } from "./validate.ts";
+import { releaseGate } from "./release_gate.ts";
+import { mirrorPairs, parsePairs } from "./mirror.ts";
+import { branchVersion } from "./branch_version.ts";
+import {
+  type MergedPr as ReleaseTailPr,
+  renderReleaseNotesTail,
+} from "./release_notes_tail.ts";
 import {
   type CommitEntry,
   listVersionTags,
@@ -100,6 +107,30 @@ Subcommands:
       ---COMMIT_SEP---), or stdin. Merge commits and "Initial plan" are
       skipped. Writes a markdown summary to GITHUB_STEP_SUMMARY when set.
       Exit 0 = all valid, 1 = any invalid.
+
+  branch-version --branch BRANCH --prefix PREFIX
+      Strip PREFIX from BRANCH and validate the remainder as X.Y.Z.
+      Prints the version to stdout. Exits non-zero if the branch does
+      not match the prefix or the trailing version is not strict semver.
+
+  release-notes-tail --prs FILE --since EPOCH --version X.Y.Z
+                     [--prev-tag TAG] [--repo OWNER/REPO]
+      Render the "Pull requests in this release" tail block from a gh
+      pr-list JSON dump. EPOCH is the unix timestamp (\`git log -1
+      --format=%ct\` of PREV_TAG). If --prev-tag and --repo are both
+      set, also emits a compare link.
+
+  mirror [--pairs-file FILE] [--from-env VAR]
+      Copy files between paths described as newline-separated \`src:dst\`
+      pairs. Reads from --pairs-file, then --from-env (default
+      MIRROR_PATHS), then stdin. Creates the destination directory if it
+      doesn't exist. Empty input is a no-op.
+
+  release-gate --prev-tag TAG --current X.Y.Z --bumped true|false
+      Decide whether prepare-release should open/update a release PR.
+      Writes \`proceed=true|false\` and \`reason=...\` to GITHUB_OUTPUT
+      (when set) and to stdout. Always exits 0; the workflow gates on
+      the proceed value.
 
   build-changelog [--output PATH] [--format md|html] [--repo OWNER/REPO]
                   [--preserve-from FILE] [--next-version VER]
@@ -413,6 +444,103 @@ function buildReleaseRanges(tags: string[], cwd?: string): ReleaseRange[] {
   return ranges;
 }
 
+function cmdBranchVersion(args: string[]): void {
+  const branch = takeOption(args, "--branch");
+  const prefix = takeOption(args, "--prefix");
+  if (!branch || !prefix) {
+    console.error(
+      "usage: branch-version --branch BRANCH --prefix PREFIX",
+    );
+    process.exit(2);
+  }
+  try {
+    console.log(branchVersion(branch, prefix));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`::error::${message}`);
+    process.exit(1);
+  }
+}
+
+async function cmdReleaseNotesTail(args: string[]): Promise<void> {
+  const prsPath = takeOption(args, "--prs");
+  const sinceRaw = takeOption(args, "--since");
+  const version = takeOption(args, "--version");
+  const prevTag = takeOption(args, "--prev-tag") ?? "";
+  const repo = takeOption(args, "--repo") ?? "";
+  if (!prsPath || sinceRaw == null || !version) {
+    console.error(
+      "usage: release-notes-tail --prs FILE --since EPOCH --version X.Y.Z [--prev-tag TAG] [--repo OWNER/REPO]",
+    );
+    process.exit(2);
+  }
+  const sinceEpoch = Number(sinceRaw);
+  if (!Number.isFinite(sinceEpoch) || sinceEpoch < 0) {
+    console.error(`--since must be a non-negative integer, got "${sinceRaw}"`);
+    process.exit(2);
+  }
+  const raw = JSON.parse(await readFile(prsPath, "utf-8"));
+  if (!Array.isArray(raw)) {
+    console.error(`${prsPath}: expected a JSON array`);
+    process.exit(2);
+  }
+  const prs = raw as ReleaseTailPr[];
+  process.stdout.write(
+    renderReleaseNotesTail({
+      prs,
+      sinceEpoch,
+      prevTag: prevTag || null,
+      version,
+      repo: repo || null,
+    }),
+  );
+}
+
+async function cmdMirror(args: string[]): Promise<void> {
+  const pairsFile = takeOption(args, "--pairs-file");
+  const fromEnv = takeOption(args, "--from-env") ?? "MIRROR_PATHS";
+  let text: string;
+  if (pairsFile) {
+    text = await readFile(pairsFile, "utf-8");
+  } else if (process.env[fromEnv]) {
+    text = process.env[fromEnv]!;
+  } else if (!process.stdin.isTTY) {
+    text = await readStdin();
+  } else {
+    text = "";
+  }
+  const pairs = parsePairs(text);
+  if (pairs.length === 0) return;
+  await mirrorPairs(pairs);
+  for (const { src, dst } of pairs) {
+    console.log(`Mirrored ${src} → ${dst}`);
+  }
+}
+
+async function cmdReleaseGate(args: string[]): Promise<void> {
+  const prevTag = takeOption(args, "--prev-tag") ?? "";
+  const current = takeOption(args, "--current");
+  const bumpedRaw = takeOption(args, "--bumped");
+  if (!current || bumpedRaw == null) {
+    console.error(
+      "usage: release-gate --prev-tag TAG --current X.Y.Z --bumped true|false",
+    );
+    process.exit(2);
+  }
+  if (bumpedRaw !== "true" && bumpedRaw !== "false") {
+    console.error(`--bumped must be "true" or "false", got "${bumpedRaw}"`);
+    process.exit(2);
+  }
+  const verdict = releaseGate(prevTag, current, bumpedRaw === "true");
+  const output = process.env.GITHUB_OUTPUT;
+  const line = `proceed=${verdict.proceed}\nreason=${verdict.reason}\n`;
+  if (output) await appendFile(output, line);
+  process.stdout.write(line);
+  if (!verdict.proceed) {
+    console.error(`::notice::Skipping release: ${verdict.reason}`);
+  }
+}
+
 async function cmdBuildChangelog(args: string[]): Promise<void> {
   const output = takeOption(args, "--output") ?? "CHANGELOG.md";
   const format = takeOption(args, "--format") ?? "md";
@@ -537,6 +665,18 @@ async function main(): Promise<void> {
       return;
     case "validate-commits":
       await cmdValidateCommits(rest);
+      return;
+    case "branch-version":
+      cmdBranchVersion(rest);
+      return;
+    case "release-notes-tail":
+      await cmdReleaseNotesTail(rest);
+      return;
+    case "mirror":
+      await cmdMirror(rest);
+      return;
+    case "release-gate":
+      await cmdReleaseGate(rest);
       return;
     case "build-changelog":
       await cmdBuildChangelog(rest);
