@@ -7,13 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
 ### Changed
+
+- tighten doc accuracy and add baseline contributor/security/agent guidance (#19)
+- add caching, timeouts, concurrency guards, and persist-credentials hardening (#22)
 
 ### Fixed
 
-### Removed
+- harden publish trigger + add permissions to self-validate (#20 by @Pushplaybang)
 
 ## [1.3.0] - 2026-04-28
 
