@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [1.3.1] - 2026-05-01
+
 ### Changed
 
 - tighten doc accuracy and add baseline contributor/security/agent guidance (#19)
