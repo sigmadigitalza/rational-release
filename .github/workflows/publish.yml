@@ -5,6 +5,11 @@
 # does not fire downstream `push` events — workflow_run is the standard
 # way to chain a publish job onto a tag-pushing release workflow.
 #
+# Also exposes a workflow_dispatch break-glass: if a workflow_run-driven
+# publish fails (e.g. a bug in this file at the time Cut Release ran),
+# operators can manually publish an existing tag from the Actions tab
+# after merging the fix. Pass the tag (e.g. v1.3.1) as the input.
+#
 # Requires the @sigmadigitalza scope on jsr.io to be linked to this
 # GitHub repo (handled in jsr.io UI on first publish). OIDC means no
 # token is needed.
@@ -15,6 +20,12 @@ on:
   workflow_run:
     workflows: ["Cut Release"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to publish (e.g. v1.3.1)."
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -22,29 +33,45 @@ permissions:
 
 jobs:
   publish:
-    # Only publish when Cut Release succeeded on a release/v* branch.
-    # head_branch is the branch the triggering workflow ran on; the
-    # Cut Release flow only fires on `release/v<semver>`, so this
-    # double-checks the chain before we touch JSR with id-token: write.
+    # For workflow_run: only publish when Cut Release succeeded on a
+    # release/v* branch. head_branch is the branch the triggering
+    # workflow ran on; the Cut Release flow only fires on
+    # `release/v<semver>`, so this double-checks the chain before we
+    # touch JSR with id-token: write.
+    #
+    # For workflow_dispatch: gating is by repo write access (only
+    # maintainers can dispatch); the tag input is validated below.
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'release/v')
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'release/v'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Resolve published version from triggering branch
+      - name: Resolve published version
         id: ver
         shell: bash
         env:
+          EVENT_NAME: ${{ github.event_name }}
           HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          DISPATCH_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
-          version="${HEAD_BRANCH#release/v}"
-          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Could not derive semver from branch ${HEAD_BRANCH}"
-            exit 1
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="$DISPATCH_TAG"
+            if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Tag input must match v<major>.<minor>.<patch>, got: ${tag}"
+              exit 1
+            fi
+          else
+            version="${HEAD_BRANCH#release/v}"
+            if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Could not derive semver from branch ${HEAD_BRANCH}"
+              exit 1
+            fi
+            tag="v${version}"
           fi
-          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
 
       # Checkout the tag Cut Release just pushed, not the workflow_run
       # head_sha. Pinning to the tag makes the publish artifact match
@@ -66,8 +93,8 @@ jobs:
           TAG: ${{ steps.ver.outputs.tag }}
         run: |
           set -euo pipefail
-          manifest_version=$(deno eval --quiet --allow-read=deno.json 'console.log(JSON.parse(Deno.readTextFileSync("deno.json")).version)')
-          if [ -z "$manifest_version" ]; then
+          manifest_version=$(jq -r '.version' deno.json)
+          if [ -z "$manifest_version" ] || [ "$manifest_version" = "null" ]; then
             echo "::error::Could not read version from deno.json"
             exit 1
           fi
