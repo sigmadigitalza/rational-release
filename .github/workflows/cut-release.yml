@@ -63,6 +63,11 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.base.ref }}
           fetch-depth: 0
+          # Explicit fetch-tags is required even with fetch-depth: 0.
+          # cut-release reads the previous tag for the "PRs since
+          # previous release" notes; without this, the prev-tag
+          # detection misses tags pushed by an earlier run.
+          fetch-tags: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure git identity

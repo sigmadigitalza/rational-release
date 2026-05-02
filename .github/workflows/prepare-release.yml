@@ -66,6 +66,14 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
+          # Explicit fetch-tags is required even with fetch-depth: 0.
+          # Without this, when prepare-release fires immediately after
+          # a cut-release that just pushed `vX.Y.Z`, the new tag is
+          # absent from the local clone and `git tag --list` returns
+          # empty — so we incorrectly treat this as the first release
+          # and re-walk all commits from the start of history,
+          # producing a release PR with already-shipped PR titles.
+          fetch-tags: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure git identity
