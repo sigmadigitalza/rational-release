@@ -1,6 +1,6 @@
 {
   "name": "@sigmadigitalza/rational-release",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "license": "MIT",
   "exports": {
     ".": "./cli/mod.ts"
