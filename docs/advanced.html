@@ -271,9 +271,23 @@ deno run -A jsr:@sigmadigitalza/rational-release \
     <p>
       If you run releases from a cloud agent that operates behind a network allowlist
       (GitHub-hosted Copilot agents, sandboxed CI runners), make sure the agent can reach
-      <code>jsr.io</code> so it can resolve and run the CLI &mdash; the workflows pull it as
-      <code>jsr:@sigmadigitalza/rational-release</code>. On unrestricted GitHub Actions runners
-      this is already the default, so no change is needed.
+      both of these hosts:
+    </p>
+
+    <ul>
+      <li><code>https://dl.deno.land/</code> &mdash; the agent installs Deno from here before
+        any CLI subcommand can run.</li>
+      <li><code>https://jsr.io/</code> &mdash; the workflows resolve the CLI as
+        <code>jsr:@sigmadigitalza/rational-release</code> from JSR.</li>
+    </ul>
+
+    <p>
+      For Copilot specifically, add both URLs in
+      <em>Settings &rarr; Copilot &rarr; Coding agent &rarr; Custom allowlist</em> on the
+      consumer repository (admins only). Without them, Copilot's review/PR-edit jobs will
+      fail with a firewall block on <code>dl.deno.land</code> and never reach the CLI.
+      On unrestricted GitHub-hosted Actions runners this is already the default, so no
+      change is needed there.
     </p>
 
     <h2 id="pin">Pinning to an exact version</h2>
