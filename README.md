@@ -113,12 +113,12 @@ tag matches the manifest before publishing. This avoids the CodeQL
 | Input | Default | Purpose |
 |---|---|---|
 | `manifest-path` | `deno.json` | JSON file containing the version. |
-| `manifest-jsonpath` | `$.version` | Dot-path inside the manifest. |
+| `manifest-jsonpath` | `$.version` | JSONPath-lite dot-path (must start with `$.`) inside the manifest. |
 | `pre1-cap` | `false` | Treat `feat!:` as `minor` while `0.x.y`. |
 | `release-branch-prefix` | `release/v` | Prefix for the release branch name. |
 | `pre-tasks` | _(empty)_ | Newline-separated shell commands run before changelog gen. |
-| `commit-paths` | _(empty)_ | Extra paths to `git add` into the prep commit. |
-| `mirror-paths` | _(empty)_ | `src:dst` pairs to copy after changelog generation. |
+| `commit-paths` | _(empty)_ | Newline-separated extra paths to `git add` into the prep commit. |
+| `mirror-paths` | _(empty)_ | Newline-separated `src:dst` pairs to copy after changelog generation. |
 | `changelog-path` | `CHANGELOG.md` | Path to the canonical changelog. |
 | `bootstrap-changelog` | `true` | Auto-create the changelog with a Keep-a-Changelog skeleton if missing. |
 | `cli` | `jsr:@sigmadigitalza/rational-release@^1` | CLI source. JSR specifier (default) or local path (`./cli/mod.ts`) for dogfooding. |
@@ -129,15 +129,15 @@ tag matches the manifest before publishing. This avoids the CodeQL
 | Input | Default | Purpose |
 |---|---|---|
 | `manifest-path` | `deno.json` | (Same as above; cross-checked against branch name.) |
-| `manifest-jsonpath` | `$.version` | |
-| `release-branch-prefix` | `release/v` | |
-| `changelog-path` | `CHANGELOG.md` | |
-| `mirror-paths` | _(empty)_ | |
-| `commit-paths` | _(empty)_ | |
+| `manifest-jsonpath` | `$.version` | JSONPath-lite dot-path (must start with `$.`) inside the manifest. |
+| `release-branch-prefix` | `release/v` | Prefix for the release branch name. Must match the hardcoded `release/v` job gate in the workflow. |
+| `changelog-path` | `CHANGELOG.md` | Path to the canonical changelog. |
+| `mirror-paths` | _(empty)_ | Newline-separated `src:dst` pairs to copy after changelog finalisation. |
+| `commit-paths` | _(empty)_ | Newline-separated extra paths to `git add` into the finalisation commit. |
 | `artefact-task` | _(empty)_ | Shell command(s) run after the tag is created. |
 | `artefact-paths` | _(empty)_ | Globs of files to attach to the GitHub Release. |
 | `cli` | `jsr:@sigmadigitalza/rational-release@^1` | CLI source. JSR specifier (default) or local path (`./cli/mod.ts`) for dogfooding. |
-| `runs-on` | `ubuntu-latest` | |
+| `runs-on` | `ubuntu-latest` | Runner label. |
 
 ### `validate-pr.yml`
 
@@ -147,7 +147,7 @@ tag matches the manifest before publishing. This avoids the CodeQL
 | `gate` | `false` | Fail the workflow on validation error (vs report-only). |
 | `validate-commits` | `true` | Also validate every commit message in the PR. |
 | `cli` | `jsr:@sigmadigitalza/rational-release@^1` | CLI source. JSR specifier (default) or local path (`./cli/mod.ts`) for dogfooding. |
-| `runs-on` | `ubuntu-latest` | |
+| `runs-on` | `ubuntu-latest` | Runner label. |
 
 ## Bump rules
 
