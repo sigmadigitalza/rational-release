@@ -201,12 +201,29 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
+
+          # Exact (immutable) tag for this release.
           git tag "v${VERSION}"
           # Retry push up to 3 times to handle transient network failures.
           for attempt in 1 2 3; do
             if git push origin "v${VERSION}"; then break; fi
             if [ "$attempt" -eq 3 ]; then echo "::error::tag push failed after 3 attempts"; exit 1; fi
             echo "::warning::tag push attempt $attempt failed, retrying in 5s…"
+            sleep 5
+          done
+
+          # Floating major-version tag (mutable by design — the README
+          # documents that `@v1` re-points on additive changes within v1.x.y).
+          # Force-update locally and force-push to the remote so consumers
+          # that pin to `@v1` (etc.) actually receive new minor/patch
+          # releases without having to re-pin manually.
+          MAJOR="${VERSION%%.*}"
+          MAJOR_TAG="v${MAJOR}"
+          git tag --force "$MAJOR_TAG" "v${VERSION}"
+          for attempt in 1 2 3; do
+            if git push --force origin "$MAJOR_TAG"; then break; fi
+            if [ "$attempt" -eq 3 ]; then echo "::error::major tag push failed after 3 attempts"; exit 1; fi
+            echo "::warning::major tag push attempt $attempt failed, retrying in 5s…"
             sleep 5
           done
 
