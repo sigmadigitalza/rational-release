@@ -24,7 +24,11 @@ Deno.test("renderReleaseNotesTail: filters by sinceEpoch (strictly greater)", ()
     prs: [
       PR(1, "feat: kept", new Date((since + 60) * 1000).toISOString()),
       PR(2, "feat: same-second skipped", new Date(since * 1000).toISOString()),
-      PR(3, "feat: earlier skipped", new Date((since - 60) * 1000).toISOString()),
+      PR(
+        3,
+        "feat: earlier skipped",
+        new Date((since - 60) * 1000).toISOString(),
+      ),
     ],
     sinceEpoch: since,
     prevTag: "v1.2.3",
@@ -32,7 +36,9 @@ Deno.test("renderReleaseNotesTail: filters by sinceEpoch (strictly greater)", ()
     repo: "sigmadigitalza/rational-release",
   });
   if (!out.includes("kept")) throw new Error("expected kept PR in output");
-  if (out.includes("same-second")) throw new Error("equal-time PR not filtered");
+  if (out.includes("same-second")) {
+    throw new Error("equal-time PR not filtered");
+  }
   if (out.includes("earlier")) throw new Error("earlier PR not filtered");
 });
 
