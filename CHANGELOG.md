@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [1.4.2] - 2026-05-02
+
 ### Fixed
 
 - fetch tags explicitly on prepare/cut checkout (#31 by @Pushplaybang)
