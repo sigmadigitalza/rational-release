@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Removed
+
+## [1.4.0] - 2026-05-02
+
+### Added
+
 - extract workflow bash into tested CLI subcommands (#26 by @Pushplaybang)
 
 ### Changed
