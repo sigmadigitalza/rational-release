@@ -7,13 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-### Changed
-
 ### Fixed
 
-### Removed
+- force-update floating major-version tag on every cut (#29 by @Pushplaybang)
 
 ## [1.4.0] - 2026-05-02
 
