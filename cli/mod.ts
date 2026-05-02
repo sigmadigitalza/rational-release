@@ -479,6 +479,15 @@ async function cmdReleaseNotesTail(args: string[]): Promise<void> {
     console.error(`--since must be a non-negative integer, got "${sinceRaw}"`);
     process.exit(2);
   }
+  // Strict X.Y.Z, with an optional leading "v" stripped. The compare URL
+  // is built as `vX.Y.Z`, so `v1.2.3` would otherwise produce `vv1.2.3`.
+  const normalisedVersion = version.replace(/^v/, "");
+  if (!/^\d+\.\d+\.\d+$/.test(normalisedVersion)) {
+    console.error(
+      `--version must be X.Y.Z (e.g. 1.2.3), got "${version}"`,
+    );
+    process.exit(2);
+  }
   const raw = JSON.parse(await readFile(prsPath, "utf-8"));
   if (!Array.isArray(raw)) {
     console.error(`${prsPath}: expected a JSON array`);
@@ -490,7 +499,7 @@ async function cmdReleaseNotesTail(args: string[]): Promise<void> {
       prs,
       sinceEpoch,
       prevTag: prevTag || null,
-      version,
+      version: normalisedVersion,
       repo: repo || null,
     }),
   );
@@ -509,11 +518,17 @@ async function cmdMirror(args: string[]): Promise<void> {
   } else {
     text = "";
   }
-  const pairs = parsePairs(text);
-  if (pairs.length === 0) return;
-  await mirrorPairs(pairs);
-  for (const { src, dst } of pairs) {
-    console.log(`Mirrored ${src} → ${dst}`);
+  try {
+    const pairs = parsePairs(text);
+    if (pairs.length === 0) return;
+    await mirrorPairs(pairs);
+    for (const { src, dst } of pairs) {
+      console.log(`Mirrored ${src} → ${dst}`);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`::error::${message}`);
+    process.exit(1);
   }
 }
 
@@ -531,7 +546,16 @@ async function cmdReleaseGate(args: string[]): Promise<void> {
     console.error(`--bumped must be "true" or "false", got "${bumpedRaw}"`);
     process.exit(2);
   }
-  const verdict = releaseGate(prevTag, current, bumpedRaw === "true");
+  // Defense in depth: releaseGate() is designed to never throw, but if a
+  // future regression slips through we still want a clean `proceed=false`
+  // rather than a stack trace that crashes the workflow step.
+  let verdict;
+  try {
+    verdict = releaseGate(prevTag, current, bumpedRaw === "true");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    verdict = { proceed: false, reason: `release-gate error: ${message}` };
+  }
   const output = process.env.GITHUB_OUTPUT;
   const line = `proceed=${verdict.proceed}\nreason=${verdict.reason}\n`;
   if (output) await appendFile(output, line);

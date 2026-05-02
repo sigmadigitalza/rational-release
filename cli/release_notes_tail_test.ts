@@ -126,6 +126,22 @@ Deno.test("renderReleaseNotesTail: no compare link when prev tag absent", () => 
   }
 });
 
+Deno.test("renderReleaseNotesTail: tolerates --version normalization (caller responsibility)", () => {
+  // The CLI strips a leading "v" before passing through; the renderer
+  // itself just builds `vX.Y.Z` in the compare URL and trusts the input.
+  const ts = new Date(1_700_000_100 * 1000).toISOString();
+  const out = renderReleaseNotesTail({
+    prs: [PR(1, "feat: x", ts)],
+    sinceEpoch: 0,
+    prevTag: "v1.0.0",
+    version: "1.1.0",
+    repo: "owner/repo",
+  });
+  if (!out.includes("compare/v1.0.0...v1.1.0")) {
+    throw new Error(`compare URL malformed: ${out}`);
+  }
+});
+
 Deno.test("renderReleaseNotesTail: starts with leading blank line and PR header", () => {
   const out = renderReleaseNotesTail({
     prs: [],

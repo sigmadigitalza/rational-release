@@ -18,12 +18,20 @@ export interface GateVerdict {
   reason: string;
 }
 
-function compareSemver(a: string, b: string): number {
-  const [aMaj, aMin, aPatch] = parseVersion(a);
-  const [bMaj, bMin, bPatch] = parseVersion(b);
-  if (aMaj !== bMaj) return aMaj - bMaj;
-  if (aMin !== bMin) return aMin - bMin;
-  return aPatch - bPatch;
+type Parsed = [number, number, number];
+
+function tryParse(v: string): Parsed | null {
+  try {
+    return parseVersion(v);
+  } catch {
+    return null;
+  }
+}
+
+function isAhead(a: Parsed, b: Parsed): boolean {
+  if (a[0] !== b[0]) return a[0] > b[0];
+  if (a[1] !== b[1]) return a[1] > b[1];
+  return a[2] > b[2];
 }
 
 function stripV(tag: string): string {
@@ -42,13 +50,39 @@ export function releaseGate(
     return { proceed: true, reason: "no previous release tag" };
   }
 
-  const prevVersion = stripV(prevTag);
+  // Defensive parsing: a tag like `v1.0` or `v0.5-beta` is technically
+  // matched by `git tag --list 'v*'` even though it isn't strict X.Y.Z.
+  // Rather than crashing the workflow, fall back to a bumped-only gate
+  // and explain why the in-flight check was skipped.
+  const currentParsed = tryParse(current);
+  if (!currentParsed) {
+    return {
+      proceed: false,
+      reason:
+        `manifest version "${current}" is not strict X.Y.Z — refusing to gate`,
+    };
+  }
+
+  const prevParsed = tryParse(stripV(prevTag));
+  if (!prevParsed) {
+    if (bumped) {
+      return {
+        proceed: true,
+        reason:
+          `version bump detected (previous tag ${prevTag} is not strict semver — in-flight check skipped)`,
+      };
+    }
+    return {
+      proceed: false,
+      reason: `no version-bumping commits since ${prevTag}`,
+    };
+  }
 
   // If the manifest is already ahead of the previous tag, a release is in
   // flight: a release PR was merged (manifest bumped, finalisation commit
   // landed) but cut-release hasn't tagged yet, or someone bumped manually.
   // Opening another release PR on top would race the cut.
-  if (current !== prevVersion && compareSemver(current, prevVersion) > 0) {
+  if (isAhead(currentParsed, prevParsed)) {
     return {
       proceed: false,
       reason: `manifest ${current} is ahead of ${prevTag} — release in flight`,

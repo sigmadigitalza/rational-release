@@ -60,3 +60,36 @@ Deno.test("releaseGate: numerically-correct semver compare (10 > 2)", () => {
   eq(v.proceed, false);
   eq(v.reason.includes("release in flight"), true);
 });
+
+Deno.test("releaseGate: non-strict prevTag with bump → proceed (in-flight check skipped)", () => {
+  // `git tag --list 'v*'` will surface tags like v1.0 or v0.5-beta. The
+  // gate must not crash on these; instead it should fall through to the
+  // bumped check and tell the operator why.
+  const v = releaseGate("v1.0", "1.2.3", true);
+  eq(v.proceed, true);
+  eq(v.reason.includes("not strict semver"), true);
+  eq(v.reason.includes("in-flight check skipped"), true);
+});
+
+Deno.test("releaseGate: non-strict prevTag without bump → skip", () => {
+  const v = releaseGate("v0.5-beta", "1.0.0", false);
+  eq(v.proceed, false);
+  eq(v.reason.includes("no version-bumping commits"), true);
+});
+
+Deno.test("releaseGate: non-strict current → refuse", () => {
+  // Manifest in a bad state (e.g. someone wrote "1.2.3-rc1"). Don't
+  // proceed and don't crash; surface a clear reason for the operator.
+  const v = releaseGate("v1.2.3", "1.2.3-rc1", true);
+  eq(v.proceed, false);
+  eq(v.reason.includes("not strict X.Y.Z"), true);
+  eq(v.reason.includes("refusing to gate"), true);
+});
+
+Deno.test("releaseGate: non-strict current without prev → refuse takes precedence", () => {
+  // First release with a bad manifest: still refuse. Bad input is more
+  // important to surface than the first-release shortcut.
+  const v = releaseGate("v1.0.0", "not-a-version", true);
+  eq(v.proceed, false);
+  eq(v.reason.includes("not strict X.Y.Z"), true);
+});
