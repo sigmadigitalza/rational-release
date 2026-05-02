@@ -83,13 +83,11 @@ jobs:
         env:
           PREFIX: ${{ inputs.release-branch-prefix }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          CLI: ${{ inputs.cli }}
         run: |
           set -euo pipefail
-          version="${HEAD_REF#${PREFIX}}"
-          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Branch ${HEAD_REF} did not yield a valid semver after stripping ${PREFIX}"
-            exit 1
-          fi
+          version=$(deno run --allow-read "$CLI" branch-version \
+            --branch "$HEAD_REF" --prefix "$PREFIX")
           echo "version=$version" | tee -a "$GITHUB_OUTPUT"
           echo "### 🏷️ Release version: \`v${version}\`" >> "$GITHUB_STEP_SUMMARY"
 
@@ -148,15 +146,8 @@ jobs:
         shell: bash
         env:
           MIRROR_PATHS: ${{ inputs.mirror-paths }}
-        run: |
-          set -euo pipefail
-          while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            src="${line%%:*}"
-            dst="${line#*:}"
-            mkdir -p "$(dirname "$dst")"
-            cp "$src" "$dst"
-          done <<< "$MIRROR_PATHS"
+          CLI: ${{ inputs.cli }}
+        run: deno run --allow-read --allow-write --allow-env "$CLI" mirror
 
       - name: Extract release notes for this version
         id: notes
@@ -240,33 +231,34 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PREV_TAG: ${{ steps.prev.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+          CLI: ${{ inputs.cli }}
         run: |
           set -euo pipefail
           if [ -n "$PREV_TAG" ]; then
             since=$(git log -1 --format=%ct "$PREV_TAG")
-            compare="${PREV_TAG}...v${VERSION}"
           else
             since=0
-            compare=""
           fi
-          {
-            echo
-            echo "### Pull requests in this release"
-            echo
-            # Retry gh API call up to 3 times to handle transient failures.
-            for attempt in 1 2 3; do
-              if gh pr list --state merged --base "${GITHUB_REF_NAME:-main}" --limit 200 \
-                --json number,title,author,mergedAt \
-                --jq "[ .[] | select((.mergedAt | fromdateiso8601) > $since) ] | .[] | \"- \(.title) (#\(.number) by @\(.author.login))\""; then break; fi
-              if [ "$attempt" -eq 3 ]; then echo "::warning::gh pr list failed after 3 attempts, continuing without PR list" >&2; break; fi
-              echo "::warning::gh pr list attempt $attempt failed, retrying in 5s…" >&2
-              sleep 5
-            done
-            if [ -n "$compare" ]; then
-              echo
-              echo "**Full diff:** https://github.com/${{ github.repository }}/compare/${compare}"
+          # Retry gh API call up to 3 times to handle transient failures.
+          # On total failure, fall back to an empty array so the rendered
+          # tail still appears (with a placeholder) rather than aborting.
+          : > prs.json
+          for attempt in 1 2 3; do
+            if gh pr list --state merged --base "${GITHUB_REF_NAME:-main}" --limit 200 \
+              --json number,title,author,mergedAt > prs.json; then break; fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::warning::gh pr list failed after 3 attempts, continuing with empty PR list" >&2
+              echo "[]" > prs.json
+              break
             fi
-          } >> release-notes.md
+            echo "::warning::gh pr list attempt $attempt failed, retrying in 5s…" >&2
+            sleep 5
+          done
+          deno run --allow-read "$CLI" release-notes-tail \
+            --prs prs.json --since "$since" --version "$VERSION" \
+            --prev-tag "$PREV_TAG" --repo "$REPO" \
+            >> release-notes.md
 
       - name: Create GitHub Release
         shell: bash
