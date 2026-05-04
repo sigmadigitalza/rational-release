@@ -145,6 +145,58 @@ jobs:
             echo "### 📦 Version bump: \`${current}\` → \`${next}\`" >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      - name: Detect release-merge commit
+        id: rm_guard
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Detect whether the triggering commit is the merge commit
+          # of a `release/v*` PR. cut-release is already running for
+          # the same SHA in that case and will push `vX.Y.Z` shortly.
+          # Without this guard, prepare-release races cut-release: if
+          # `git tag --list` runs before the new tag lands on origin,
+          # prev-tag is empty and we re-walk all of history into a
+          # phantom "Release v(N+1)" PR regurgitating commits that
+          # were just shipped. fetch-tags on checkout (above) is
+          # necessary but not sufficient — there is nothing to fetch
+          # yet at this instant.
+          #
+          # The prefix is hardcoded `release/v` to mirror cut-release's
+          # job gate (`startsWith(...head.ref, 'release/v')`); the
+          # `release-branch-prefix` input is required to start with
+          # `release/v` per the README. Anchoring here too means a
+          # repo that overrides the suffix can't end up with
+          # prepare-release skipping while cut-release also doesn't
+          # fire — both gates use the same anchor.
+          #
+          # Retry up to 3 times. If the API is persistently unreachable,
+          # fall back to skip=false (the original racy-but-correct-most-
+          # of-the-time behaviour) rather than blocking the release.
+          head_ref=""
+          for attempt in 1 2 3; do
+            if out=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+              --jq '.[] | select(.merged_at != null) | .head.ref'); then
+              head_ref=$(printf '%s\n' "$out" | awk '/^release\/v/ {print; exit}')
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::warning::gh api commits/${GITHUB_SHA}/pulls failed after 3 attempts — release-merge guard inactive, proceeding"
+            else
+              echo "::warning::gh api attempt $attempt failed, retrying in 5s…"
+              sleep 5
+            fi
+          done
+          if [ -n "$head_ref" ]; then
+            echo "Triggering commit is the merge of ${head_ref} — cut-release will handle this. Skipping prepare-release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "head-ref=$head_ref" >> "$GITHUB_OUTPUT"
+            echo "### ⏭️ Skipped: triggering commit is a release-merge (\`${head_ref}\`)" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Bail out if nothing to release
         id: gate
         shell: bash
@@ -152,9 +204,18 @@ jobs:
           PREV_TAG: ${{ steps.prev.outputs.tag }}
           CURRENT: ${{ steps.bump.outputs.current }}
           BUMPED: ${{ steps.bump.outputs.bumped }}
+          GUARD_SKIP: ${{ steps.rm_guard.outputs.skip }}
+          GUARD_HEAD_REF: ${{ steps.rm_guard.outputs.head-ref }}
           CLI: ${{ inputs.cli }}
         run: |
           set -euo pipefail
+          # Bridge the release-merge guard into the existing proceed/
+          # reason output that downstream steps already gate on.
+          if [ "$GUARD_SKIP" = "true" ]; then
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "reason=release-merge commit (${GUARD_HEAD_REF})" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           deno run --allow-read --allow-env --allow-write="$GITHUB_OUTPUT" \
             "$CLI" release-gate \
               --prev-tag "$PREV_TAG" \
