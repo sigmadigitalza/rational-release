@@ -149,12 +149,36 @@ jobs:
         id: gate
         shell: bash
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREFIX: ${{ inputs.release-branch-prefix }}
           PREV_TAG: ${{ steps.prev.outputs.tag }}
           CURRENT: ${{ steps.bump.outputs.current }}
           BUMPED: ${{ steps.bump.outputs.bumped }}
           CLI: ${{ inputs.cli }}
         run: |
           set -euo pipefail
+
+          # Skip if the triggering commit is the merge commit of a
+          # `release/v*` PR. cut-release is already running for the
+          # same SHA and will push `vX.Y.Z` shortly. Without this
+          # guard, prepare-release races cut-release: if `git tag
+          # --list` runs before the new tag lands on origin, prev-tag
+          # is empty and we re-walk all of history into a phantom
+          # "Release v(N+1)" PR regurgitating commits that were just
+          # shipped. fetch-tags on checkout (above) is necessary but
+          # not sufficient — there is nothing to fetch yet at this
+          # instant.
+          head_ref=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+            --jq '.[] | select(.merged_at != null) | .head.ref' \
+            | awk -v p="$PREFIX" 'index($0, p) == 1 {print; exit}')
+          if [ -n "$head_ref" ]; then
+            echo "Triggering commit is the merge of ${head_ref} — cut-release will handle this. Skipping prepare-release."
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "reason=release-merge commit" >> "$GITHUB_OUTPUT"
+            echo "### ⏭️ Skipped: triggering commit is a release-merge (\`${head_ref}\`)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           deno run --allow-read --allow-env --allow-write="$GITHUB_OUTPUT" \
             "$CLI" release-gate \
               --prev-tag "$PREV_TAG" \
