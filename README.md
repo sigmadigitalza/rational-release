@@ -3,7 +3,7 @@
 Reusable GitHub Actions workflows + a small Deno CLI for trunk-based,
 conventional-commit-driven releases with a release-PR gate.
 
-- [Github Repo](https://github.com/sigmadigitalza/rational-release)
+- [GitHub Repo](https://github.com/sigmadigitalza/rational-release)
 - [Website](https://sigmadigital.io/rational-release/)
 - [Published on JSR](https://jsr.io/@sigmadigitalza/rational-release)
 
