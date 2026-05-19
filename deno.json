@@ -3,7 +3,8 @@
   "version": "1.5.0",
   "license": "MIT",
   "exports": {
-    ".": "./cli/mod.ts"
+    ".": "./cli/mod.ts",
+    "./lib": "./cli/lib.ts"
   },
   "publish": {
     "include": [
@@ -19,7 +20,7 @@
   "tasks": {
     "test": "deno test --allow-read --allow-write --allow-run --allow-env cli/",
     "lint": "deno lint cli/",
-    "check": "deno check cli/mod.ts",
+    "check": "deno check cli/mod.ts cli/lib.ts",
     "fmt": "deno fmt --check cli/",
     "ci": "deno task fmt && deno task lint && deno task check && deno task test"
   },

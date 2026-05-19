@@ -1,4 +1,6 @@
 /**
+ * @module
+ *
  * Build a release-notes changelog from git history.
  *
  * Conventional-changelog-style: groups commits by their conventional-
@@ -14,6 +16,7 @@
 import { execFileSync } from "node:child_process";
 import { parseSubject } from "./conventional.ts";
 
+/** A commit classified into a changelog section. */
 export interface CommitEntry {
   sha: string;
   subject: string;
@@ -21,6 +24,7 @@ export interface CommitEntry {
   title: string;
 }
 
+/** Section heading order for changelog rendering. */
 export const SECTION_ORDER = [
   "Features",
   "Bug Fixes",
@@ -36,6 +40,7 @@ export const SECTION_ORDER = [
   "Other",
 ];
 
+/** Map from conventional-commit type to changelog section heading. */
 export const TYPE_TO_SECTION: Record<string, string> = {
   feat: "Features",
   fix: "Bug Fixes",
@@ -50,6 +55,10 @@ export const TYPE_TO_SECTION: Record<string, string> = {
   chore: "Chores",
 };
 
+/**
+ * Pick the changelog section a commit belongs to based on its
+ * conventional-commit type. Non-conventional subjects land in `Other`.
+ */
 export function classifyCommit(
   subject: string,
 ): { section: string; title: string } {
@@ -63,6 +72,11 @@ export function classifyCommit(
   };
 }
 
+/**
+ * Parse one tab-separated `<sha>\t<subject>` line (the format emitted
+ * by `git log --pretty=format:%H%x09%s`) into a {@link CommitEntry}.
+ * Returns `null` if the line is malformed.
+ */
 export function parseGitLogLine(line: string): CommitEntry | null {
   const tab = line.indexOf("\t");
   if (tab < 0) return null;
@@ -73,6 +87,7 @@ export function parseGitLogLine(line: string): CommitEntry | null {
   return { sha, subject, section, title };
 }
 
+/** Group classified commits by their section name, preserving order. */
 export function groupBySection(
   commits: CommitEntry[],
 ): Record<string, CommitEntry[]> {
@@ -94,6 +109,7 @@ export function readExistingHistory(text: string): string {
   return m ? m[1].trimEnd() : "";
 }
 
+/** Inputs to {@link renderMarkdown} and {@link renderHtml}. */
 export interface RenderOptions {
   repo: string;
   unreleased?: { commits: CommitEntry[]; fromTag: string | null };
@@ -133,6 +149,11 @@ function renderMarkdownSection(
   return lines;
 }
 
+/**
+ * Render a conventional-changelog-style markdown file from
+ * {@link RenderOptions}. Each release becomes a `## [X.Y.Z]` section
+ * with GitHub compare links; non-empty types become `###` subsections.
+ */
 export function renderMarkdown(opts: RenderOptions): string {
   const lines = [
     "# Changelog",
@@ -180,6 +201,7 @@ const HTML_ESCAPE: Record<string, string> = {
   "'": "&#39;",
 };
 
+/** Escape the five HTML special characters (`&<>"'`). */
 export function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (ch) => HTML_ESCAPE[ch]);
 }
@@ -226,6 +248,11 @@ function renderHtmlSection(
   return lines;
 }
 
+/**
+ * Render an HTML changelog page that matches the rational-release docs
+ * site layout (site header, nav, container, footer). Same data model
+ * as {@link renderMarkdown}.
+ */
 export function renderHtml(opts: RenderOptions): string {
   const lines: string[] = [
     "<!doctype html>",
@@ -315,6 +342,11 @@ export function runGit(args: string[], cwd?: string): string {
   }).trim();
 }
 
+/**
+ * Reduce a git remote URL to `owner/repo`. Handles SSH
+ * (`git@github.com:owner/repo.git`) and HTTPS
+ * (`https://github.com/owner/repo.git`) shapes.
+ */
 export function parseOriginRepo(remoteUrl: string): string {
   const trimmed = remoteUrl.trim();
   if (trimmed.startsWith("git@github.com:")) {
@@ -323,6 +355,7 @@ export function parseOriginRepo(remoteUrl: string): string {
   return trimmed.replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "");
 }
 
+/** Read and classify the commits in a git revision range (e.g. `v1.0.0..HEAD`). */
 export function readCommitsInRange(range: string, cwd?: string): CommitEntry[] {
   const out = runGit(["log", "--pretty=format:%H%x09%s", range], cwd);
   if (!out) return [];
@@ -345,6 +378,7 @@ export function listVersionTags(cwd?: string): string[] {
     .filter((tag) => /^v\d+\.\d+\.\d+$/.test(tag));
 }
 
+/** Return the short-date (YYYY-MM-DD) of a tagged commit. */
 export function tagDate(tag: string, cwd?: string): string {
   return runGit(["show", "-s", "--format=%ad", "--date=short", tag], cwd);
 }

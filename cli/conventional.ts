@@ -1,14 +1,13 @@
 /**
- * Parse a single conventional-commit subject line into its parts.
+ * @module
  *
- * Returns null for non-conventional input (no type prefix). Subjects of
- * the form `type(scope)!: description` and `type: description` both
- * parse; type is lower-cased.
- *
- * Only the subject is inspected — `BREAKING CHANGE:` footers in commit
- * bodies are not visible here. Pass --format=%B and adapt if you need
- * footer parsing.
+ * Parse conventional-commit subjects and decide the semver bump they
+ * imply. All functions in this module operate on subject strings
+ * (`git log --format=%s`); body content — including `BREAKING CHANGE:`
+ * footers — is not inspected.
  */
+
+/** The parsed parts of a conventional-commit subject line. */
 export interface ParsedSubject {
   type: string;
   scope: string | null;
@@ -18,6 +17,21 @@ export interface ParsedSubject {
 
 const SUBJECT_RE = /^([a-z]+)(?:\(([^)]+)\))?(!)?\s*:\s*(.+)$/i;
 
+/**
+ * Parse a single conventional-commit subject line into its parts.
+ *
+ * Returns `null` for non-conventional input (no recognisable type
+ * prefix). Subjects of the form `type(scope)!: description` and
+ * `type: description` both parse; the type is lower-cased.
+ *
+ * @example
+ * ```ts
+ * parseSubject("feat(api)!: rewrite /v1 endpoints");
+ * // { type: "feat", scope: "api", breaking: true, description: "rewrite /v1 endpoints" }
+ *
+ * parseSubject("Merge pull request #42"); // null
+ * ```
+ */
 export function parseSubject(subject: string): ParsedSubject | null {
   const m = subject.trim().match(SUBJECT_RE);
   if (!m) return null;
@@ -59,6 +73,19 @@ export interface BumpOptions {
  * - Any type listed in `options.patchTypes` → patch
  * - Anything else (docs, chore, ci, refactor, style, test, build, revert,
  *   non-conventional) → none
+ *
+ * Built-in mappings always win over `options` entries: a `feat` listed
+ * in `patchTypes` still produces a minor; a `!` marker still produces
+ * a major regardless of either list. When the same type appears in
+ * both lists, `minorTypes` wins.
+ *
+ * @example
+ * ```ts
+ * subjectToBump("feat: add widget");                            // "minor"
+ * subjectToBump("refactor!: shuffle modules");                  // "major"
+ * subjectToBump("refactor: shuffle", { patchTypes: ["refactor"] }); // "patch"
+ * subjectToBump("docs: typo");                                  // "none"
+ * ```
  */
 export function subjectToBump(
   subject: string,
@@ -79,7 +106,19 @@ export function subjectToBump(
   return "none";
 }
 
-/** Highest bump across many subjects. */
+/**
+ * Highest bump across many subjects.
+ *
+ * Walks the list once and returns the strongest bump implied by any
+ * subject. `options` is passed through to {@link subjectToBump}.
+ *
+ * @example
+ * ```ts
+ * highestBump(["fix: a", "feat: b", "docs: c"]); // "minor"
+ * highestBump(["fix: a", "feat!: b"]);           // "major"
+ * highestBump([]);                                // "none"
+ * ```
+ */
 export function highestBump(
   subjects: string[],
   options: BumpOptions = {},

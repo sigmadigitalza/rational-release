@@ -1,4 +1,6 @@
 /**
+ * @module
+ *
  * Keep-a-Changelog operations: generate the [Unreleased] body from PRs,
  * finalise [Unreleased] → [X.Y.Z] - date, and extract a single version's
  * section as plain text for release-notes bodies.
@@ -32,6 +34,10 @@ export function bootstrapTemplate(): string {
   ].join("\n");
 }
 
+/**
+ * A merged pull request as it appears in a `gh pr list --json` dump.
+ * Only the fields the changelog renderer needs are typed.
+ */
 export interface MergedPr {
   number: number;
   title: string;
@@ -57,6 +63,14 @@ const BUCKET_ORDER = ["Added", "Changed", "Fixed", "Removed", "Other"];
 
 const META_TITLE_RE = /^(Release v\d|chore\(release\):)/i;
 
+/**
+ * Group merged PRs into Keep-a-Changelog buckets (`Added`, `Changed`,
+ * `Fixed`, `Removed`, `Other`) based on their conventional-commit type.
+ *
+ * Release prep meta-PRs (`Release vX.Y.Z`, `chore(release): …`) are
+ * filtered out — they shouldn't appear in their own changelog entry.
+ * Bot-authored PRs get a quieter attribution (no `@login`).
+ */
 export function bucketPrs(prs: MergedPr[]): Map<string, string[]> {
   const buckets = new Map<string, string[]>();
   const sorted = [...prs].sort((a, b) => a.number - b.number);
@@ -81,6 +95,10 @@ export function bucketPrs(prs: MergedPr[]): Map<string, string[]> {
   return buckets;
 }
 
+/**
+ * Render the [Unreleased] body from a bucket map. Emits a placeholder
+ * line when every bucket is empty so the section is never blank.
+ */
 export function renderUnreleased(buckets: Map<string, string[]>): string {
   const out: string[] = [];
   for (const name of BUCKET_ORDER) {
@@ -94,6 +112,11 @@ export function renderUnreleased(buckets: Map<string, string[]>): string {
   return out.join("\n");
 }
 
+/**
+ * Replace the body of `## [Unreleased]` in `changelog` with `body`,
+ * preserving everything before the header and from the next `##`
+ * section onward. Throws if no `## [Unreleased]` header is present.
+ */
 export function rewriteUnreleased(changelog: string, body: string): string {
   const headerRe = /^## \[Unreleased\][^\n]*\n/m;
   const nextSectionRe = /\n## \[(?!Unreleased)/;

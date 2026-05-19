@@ -1,4 +1,6 @@
 /**
+ * @module
+ *
  * Strip a release-branch prefix and validate the remainder as X.Y.Z.
  *
  * This is a security gate: cut-release uses the resulting version to tag
@@ -9,6 +11,17 @@
 
 const SEMVER_RE = /^[0-9]+\.[0-9]+\.[0-9]+$/;
 
+/**
+ * Strip `prefix` from `branch` and return the remainder if it is strict
+ * X.Y.Z. Throws if `prefix` is empty, the branch does not start with
+ * `prefix`, or the remainder is not strict semver.
+ *
+ * @example
+ * ```ts
+ * branchVersion("release/v1.2.3", "release/v"); // "1.2.3"
+ * branchVersion("release/v1.2", "release/v");   // throws
+ * ```
+ */
 export function branchVersion(branch: string, prefix: string): string {
   if (!prefix) {
     throw new Error("branch-version: prefix must be non-empty");
