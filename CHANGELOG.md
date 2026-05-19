@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- expose programmatic API at ./lib and audit JSDoc for docs (#38 by @Pushplaybang)
+
 ### Changed
 
-### Fixed
-
-### Removed
+- add links to readme (#35 by @Pushplaybang)
 
 ## [1.5.0] - 2026-05-19
 
