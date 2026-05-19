@@ -70,9 +70,14 @@ const USAGE = `\
 rational-release <subcommand> [args...]
 
 Subcommands:
-  next-version <manifest> [--jsonpath $.version] [--pre-1.0-cap] [--commits-file FILE]
+  next-version <manifest> [--jsonpath $.version] [--pre-1.0-cap]
+               [--commits-file FILE] [--patch-types LIST] [--minor-types LIST]
       Print the next semver. Reads commit subjects from --commits-file
-      or stdin (one subject per line).
+      or stdin (one subject per line). --patch-types and --minor-types
+      take a comma-separated list of additional commit types to fold
+      into the patch / minor tier (e.g. --patch-types refactor,build).
+      Built-in mappings (feat → minor; fix, perf → patch; ! → major)
+      always win over opt-in entries.
 
   read-version <manifest> [--jsonpath $.version]
       Print the current version from the manifest.
@@ -182,10 +187,21 @@ function takeOption(args: string[], name: string): string | undefined {
   return value;
 }
 
+function parseTypeList(raw: string | undefined): string[] | undefined {
+  if (raw === undefined) return undefined;
+  const list = raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 0);
+  return list.length > 0 ? list : undefined;
+}
+
 async function cmdNextVersion(args: string[]): Promise<void> {
   const jsonpath = takeOption(args, "--jsonpath") ?? "$.version";
   const pre1Cap = takeFlag(args, "--pre-1.0-cap");
   const commitsFile = takeOption(args, "--commits-file");
+  const patchTypes = parseTypeList(takeOption(args, "--patch-types"));
+  const minorTypes = parseTypeList(takeOption(args, "--minor-types"));
   const [manifestPath] = args;
   if (!manifestPath) {
     console.error("usage: next-version <manifest> [...]");
@@ -193,7 +209,7 @@ async function cmdNextVersion(args: string[]): Promise<void> {
   }
   const current = await readManifestVersion(manifestPath, jsonpath);
   const subjects = await readSubjects(commitsFile);
-  const bump = highestBump(subjects);
+  const bump = highestBump(subjects, { patchTypes, minorTypes });
   const next = nextVersion(current, bump, { pre1Cap });
   console.log(next);
 }

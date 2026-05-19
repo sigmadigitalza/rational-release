@@ -23,6 +23,14 @@ on:
         description: "Cap pre-1.0 major bumps to minor (a `feat!:` on 0.x stays 0.(x+1).0)."
         type: boolean
         default: false
+      patch-types:
+        description: "Comma-separated extra commit types to treat as patch (e.g. `refactor,build`). Built-in `fix` / `perf` always apply."
+        type: string
+        default: ""
+      minor-types:
+        description: "Comma-separated extra commit types to treat as minor. Built-in `feat` always applies. Wins over `patch-types` for the same type."
+        type: string
+        default: ""
       release-branch-prefix:
         type: string
         default: release/v
@@ -121,6 +129,8 @@ jobs:
           MANIFEST: ${{ inputs.manifest-path }}
           JSONPATH: ${{ inputs.manifest-jsonpath }}
           PRE1: ${{ inputs.pre1-cap }}
+          PATCH_TYPES: ${{ inputs.patch-types }}
+          MINOR_TYPES: ${{ inputs.minor-types }}
           CLI: ${{ inputs.cli }}
         run: |
           set -euo pipefail
@@ -131,6 +141,8 @@ jobs:
           fi
           flags=( --jsonpath "$JSONPATH" --commits-file commits.txt )
           [ "$PRE1" = "true" ] && flags+=( --pre-1.0-cap )
+          [ -n "$PATCH_TYPES" ] && flags+=( --patch-types "$PATCH_TYPES" )
+          [ -n "$MINOR_TYPES" ] && flags+=( --minor-types "$MINOR_TYPES" )
           next=$(deno run --allow-read "$CLI" next-version "$MANIFEST" "${flags[@]}")
           if [ -z "$next" ]; then
             echo "::error::next-version returned empty string"
