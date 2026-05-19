@@ -3,6 +3,10 @@
 Reusable GitHub Actions workflows + a small Deno CLI for trunk-based,
 conventional-commit-driven releases with a release-PR gate.
 
+- [GitHub Repo](https://github.com/sigmadigitalza/rational-release)
+- [Website](https://sigmadigital.io/rational-release/)
+- [Published on JSR](https://jsr.io/@sigmadigitalza/rational-release)
+
 Designed for Deno projects that want the shape of [release-please](https://github.com/googleapis/release-please)
 but with the prepare commit fully under their control — re-build a search index,
 mirror the changelog into a docs page, run tests as a gate, attach custom artefacts,
