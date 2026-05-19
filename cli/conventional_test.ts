@@ -82,3 +82,56 @@ Deno.test("highestBump: picks the highest", () => {
 Deno.test("highestBump: only non-bumping → none", () => {
   eq(highestBump(["docs: a", "chore: b", "ci: c"]), "none");
 });
+
+Deno.test("subjectToBump: patchTypes promotes opted-in types to patch", () => {
+  eq(subjectToBump("refactor: x", { patchTypes: ["refactor"] }), "patch");
+  eq(subjectToBump("build: x", { patchTypes: ["build", "refactor"] }), "patch");
+  eq(
+    subjectToBump("refactor(scope): x", { patchTypes: ["refactor"] }),
+    "patch",
+  );
+  // Default behaviour is unchanged when no options are supplied.
+  eq(subjectToBump("refactor: x"), "none");
+  eq(subjectToBump("build: x"), "none");
+});
+
+Deno.test("subjectToBump: minorTypes promotes opted-in types to minor", () => {
+  eq(subjectToBump("refactor: x", { minorTypes: ["refactor"] }), "minor");
+  eq(subjectToBump("docs: x", { minorTypes: ["docs"] }), "minor");
+});
+
+Deno.test("subjectToBump: built-in mappings always win over opt-in", () => {
+  // `feat` is built-in minor; opting it into patch must not downgrade it.
+  eq(subjectToBump("feat: x", { patchTypes: ["feat"] }), "minor");
+  // `fix` is built-in patch; opting it into minor must not promote it.
+  eq(subjectToBump("fix: x", { minorTypes: ["fix"] }), "patch");
+  // Breaking marker always wins.
+  eq(subjectToBump("refactor!: x", { patchTypes: ["refactor"] }), "major");
+});
+
+Deno.test("subjectToBump: minorTypes wins over patchTypes for same type", () => {
+  eq(
+    subjectToBump("refactor: x", {
+      patchTypes: ["refactor"],
+      minorTypes: ["refactor"],
+    }),
+    "minor",
+  );
+});
+
+Deno.test("highestBump: applies options across the list", () => {
+  eq(
+    highestBump(["refactor: a", "docs: b"], { patchTypes: ["refactor"] }),
+    "patch",
+  );
+  // Built-in feat still wins over opted-in patch.
+  eq(
+    highestBump(["refactor: a", "feat: b"], { patchTypes: ["refactor"] }),
+    "minor",
+  );
+  // Opted-in minor beats built-in patch.
+  eq(
+    highestBump(["refactor: a", "fix: b"], { minorTypes: ["refactor"] }),
+    "minor",
+  );
+});

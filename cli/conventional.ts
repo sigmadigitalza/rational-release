@@ -39,15 +39,31 @@ const BUMP_RANK: Record<Bump, number> = {
 };
 
 /**
+ * Optional per-project overrides for the bump map. Types listed here are
+ * promoted into the named tier *in addition to* the built-in defaults
+ * (`feat` → minor; `fix`, `perf` → patch). Built-in mappings always win,
+ * and a built-in `!` always produces a major regardless of these lists.
+ */
+export interface BumpOptions {
+  patchTypes?: string[];
+  minorTypes?: string[];
+}
+
+/**
  * Determine the semver bump implied by a single conventional-commit subject.
  *
  * - Breaking indicator (`!` before `:`) → major
  * - `feat`            → minor
  * - `fix` or `perf`   → patch
+ * - Any type listed in `options.minorTypes` → minor
+ * - Any type listed in `options.patchTypes` → patch
  * - Anything else (docs, chore, ci, refactor, style, test, build, revert,
  *   non-conventional) → none
  */
-export function subjectToBump(subject: string): Bump {
+export function subjectToBump(
+  subject: string,
+  options: BumpOptions = {},
+): Bump {
   const parsed = parseSubject(subject);
   if (!parsed) return "none";
   if (parsed.breaking) return "major";
@@ -57,16 +73,20 @@ export function subjectToBump(subject: string): Bump {
     case "fix":
     case "perf":
       return "patch";
-    default:
-      return "none";
   }
+  if (options.minorTypes?.includes(parsed.type)) return "minor";
+  if (options.patchTypes?.includes(parsed.type)) return "patch";
+  return "none";
 }
 
 /** Highest bump across many subjects. */
-export function highestBump(subjects: string[]): Bump {
+export function highestBump(
+  subjects: string[],
+  options: BumpOptions = {},
+): Bump {
   let highest: Bump = "none";
   for (const s of subjects) {
-    const bump = subjectToBump(s);
+    const bump = subjectToBump(s, options);
     if (BUMP_RANK[bump] > BUMP_RANK[highest]) highest = bump;
   }
   return highest;

@@ -115,6 +115,8 @@ tag matches the manifest before publishing. This avoids the CodeQL
 | `manifest-path` | `deno.json` | JSON file containing the version. |
 | `manifest-jsonpath` | `$.version` | JSONPath-lite dot-path (must start with `$.`) inside the manifest. |
 | `pre1-cap` | `false` | Treat `feat!:` as `minor` while `0.x.y`. |
+| `patch-types` | _(empty)_ | Comma-separated extra commit types to treat as **patch** (e.g. `refactor,build`). Built-in `fix` / `perf` always apply. See [Bump rules](#bump-rules). |
+| `minor-types` | _(empty)_ | Comma-separated extra commit types to treat as **minor**. Built-in `feat` always applies. Wins over `patch-types` for the same type. |
 | `release-branch-prefix` | `release/v` | Prefix for the release branch name. |
 | `pre-tasks` | _(empty)_ | Newline-separated shell commands run before changelog gen. |
 | `commit-paths` | _(empty)_ | Newline-separated extra paths to `git add` into the prep commit. |
@@ -162,6 +164,31 @@ across all commit subjects:
 
 If no commit triggers a bump, `prepare-release` exits early without opening a
 PR.
+
+### Opting other types into the patch / minor tier
+
+The defaults above are conservative. A project that frequently ships substantive
+`refactor:` or `build:` work — for example, internal reshuffles that move imports
+for downstream consumers — can opt those types into a bump tier:
+
+```yaml
+# In your wrapper for prepare-release.yml
+with:
+  patch-types: refactor,build
+  minor-types: ""          # opt into minor for types you treat as user-facing
+```
+
+The CLI takes the same lists directly:
+
+```sh
+rational-release next-version deno.json \
+  --commits-file commits.txt \
+  --patch-types refactor,build
+```
+
+Built-in mappings always win: a `feat:` cannot be downgraded to patch via
+`patch-types: feat`, and a `!` on the subject always produces major regardless
+of these lists. `minor-types` wins over `patch-types` for the same type.
 
 > **Footers.** Only commit subjects are scanned, not bodies. A
 > `BREAKING CHANGE:` footer alone — without a `!` on the subject — will not
