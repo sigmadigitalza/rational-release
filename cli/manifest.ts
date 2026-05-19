@@ -1,4 +1,6 @@
 /**
+ * @module
+ *
  * Read and write a version field in a JSON manifest (deno.json,
  * package.json, jsr.json, etc.) addressed by a JSONPath-lite expression.
  *
@@ -20,6 +22,17 @@ function splitPath(jsonpath: string): string[] {
   return jsonpath.slice(2).split(".");
 }
 
+/**
+ * Read a string value from a parsed JSON manifest at a JSONPath-lite
+ * dot-path. Throws if the path is unsupported, missing, or points at
+ * a non-string value.
+ *
+ * @example
+ * ```ts
+ * readVersion({ version: "1.2.3" }, "$.version");          // "1.2.3"
+ * readVersion({ pkg: { v: "0.1.0" } }, "$.pkg.v");        // "0.1.0"
+ * ```
+ */
 export function readVersion(
   // deno-lint-ignore no-explicit-any
   manifest: any,
@@ -41,6 +54,12 @@ export function readVersion(
   return cur;
 }
 
+/**
+ * Return a copy of `manifest` with the value at `jsonpath` set to
+ * `version`. The spine of the path is shallow-cloned so the input is
+ * not mutated. Throws if the path is unsupported or descends into a
+ * non-object.
+ */
 export function writeVersion(
   // deno-lint-ignore no-explicit-any
   manifest: any,
@@ -64,6 +83,10 @@ export function writeVersion(
   return root;
 }
 
+/**
+ * Read a version string from a JSON manifest file at `path`. Convenience
+ * wrapper around {@link readVersion} that handles the file IO.
+ */
 export async function readManifestVersion(
   path: string,
   jsonpath: string,

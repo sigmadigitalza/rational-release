@@ -1,4 +1,6 @@
 /**
+ * @module
+ *
  * Decide whether prepare-release should open/update a release PR.
  *
  * Three signals feed in:
@@ -13,6 +15,7 @@
 
 import { parseVersion } from "./version.ts";
 
+/** Verdict returned by {@link releaseGate}. */
 export interface GateVerdict {
   proceed: boolean;
   reason: string;
@@ -38,6 +41,14 @@ function stripV(tag: string): string {
   return tag.startsWith("v") ? tag.slice(1) : tag;
 }
 
+/**
+ * Decide whether prepare-release should proceed.
+ *
+ * Returns `proceed: true` on first release (no `prevTag`), or when a
+ * conventional-commit bump is detected and the manifest is not already
+ * ahead of `prevTag` (i.e. a release is not already in flight).
+ * Otherwise returns `proceed: false` with a human-readable `reason`.
+ */
 export function releaseGate(
   prevTag: string,
   current: string,

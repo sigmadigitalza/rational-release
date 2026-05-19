@@ -1,4 +1,6 @@
 /**
+ * @module
+ *
  * Format the "Pull requests in this release" tail that cut-release
  * appends to the GitHub Release body.
  *
@@ -7,6 +9,12 @@
  * call; this module only takes the parsed JSON.
  */
 
+/**
+ * A merged pull request as it appears in a `gh pr list --json` dump,
+ * with `mergedAt` as an ISO-8601 string. (Re-exported from
+ * `@sigmadigitalza/rational-release/lib` as `ReleaseTailMergedPr` to
+ * avoid colliding with the changelog module's `MergedPr` shape.)
+ */
 export interface MergedPr {
   number: number;
   title: string;
@@ -14,6 +22,7 @@ export interface MergedPr {
   author?: { login?: string; is_bot?: boolean } | null;
 }
 
+/** Inputs to {@link renderReleaseNotesTail}. */
 export interface RenderTailOptions {
   prs: MergedPr[];
   sinceEpoch: number;
@@ -36,6 +45,14 @@ function attribute(pr: MergedPr): string {
   return `- ${pr.title} (#${pr.number} by @${login})`;
 }
 
+/**
+ * Render the markdown "Pull requests in this release" block.
+ *
+ * PRs whose `mergedAt` is strictly after `sinceEpoch` are included,
+ * sorted by number. Bots and login-less authors get a quieter
+ * `(#N)` attribution. When both `prevTag` and `repo` are present, a
+ * `**Full diff:**` compare link is appended.
+ */
 export function renderReleaseNotesTail(opts: RenderTailOptions): string {
   const { prs, sinceEpoch, prevTag, version, repo } = opts;
   const filtered = prs

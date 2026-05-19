@@ -1,4 +1,6 @@
 /**
+ * @module
+ *
  * Conventional-commit validators for PR titles and commit-message lists.
  *
  * Pure functions — return structured verdicts; the CLI driver renders
@@ -7,6 +9,7 @@
 
 import { parseSubject } from "./conventional.ts";
 
+/** Default set of allowed conventional-commit types. */
 export const DEFAULT_ALLOWED_TYPES = [
   "feat",
   "fix",
@@ -22,18 +25,34 @@ export const DEFAULT_ALLOWED_TYPES = [
 ];
 
 /** Headers we never validate — tooling-generated bootstrap commits. */
-export const DEFAULT_SKIPPED_HEADERS = new Set(["Initial plan"]);
+export const DEFAULT_SKIPPED_HEADERS: Set<string> = new Set(["Initial plan"]);
 
+/** Options shared by {@link validateTitle} and {@link validateCommits}. */
 export interface ValidateOptions {
   allowedTypes?: string[];
   requireScope?: boolean;
 }
 
+/** Result of validating a single PR title. */
 export interface TitleVerdict {
   ok: boolean;
   errors: string[];
 }
 
+/**
+ * Validate a PR title against Conventional Commits. Empty titles, missing
+ * type prefixes, unknown types, and (with `requireScope`) missing scopes
+ * each produce a structured error rather than an exception.
+ *
+ * @example
+ * ```ts
+ * validateTitle("feat: add widget");
+ * // { ok: true, errors: [] }
+ *
+ * validateTitle("update readme");
+ * // { ok: false, errors: ["Title does not match `type(scope)?!?: description`."] }
+ * ```
+ */
 export function validateTitle(
   title: string,
   options: ValidateOptions = {},
@@ -70,6 +89,7 @@ export function validateTitle(
   return { ok: errors.length === 0, errors };
 }
 
+/** Per-commit result inside a {@link CommitsVerdict}. */
 export interface CommitResult {
   header: string;
   ok: boolean;
@@ -77,6 +97,7 @@ export interface CommitResult {
   errors: string[];
 }
 
+/** Aggregate result of validating a list of commit-message headers. */
 export interface CommitsVerdict {
   results: CommitResult[];
   passed: number;
