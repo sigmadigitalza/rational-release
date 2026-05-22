@@ -433,12 +433,15 @@ jobs:
           if [ -z "${PREFIX}" ]; then
             echo "::warning::release-branch-prefix is empty; skipping stale PR sweep to avoid closing unrelated PRs"
           else
+            # --limit 200: well above any realistic open-release-PR count;
+            # avoids silent truncation at the CLI default (30).
             stale_prs=$(gh pr list \
               --base "${GITHUB_REF_NAME:-main}" --state open \
               --limit 200 \
               --json number,headRefName \
               --jq ".[] | select(.headRefName | startswith(\"${PREFIX}\")) | select(.headRefName != \"${branch}\") | [.number, .headRefName] | @tsv")
             while IFS=$'\t' read -r num head_ref; do
+              # Skip blank lines that can arise from an empty here-string.
               [ -z "$num" ] && continue
               echo "Superseding stale release PR #${num} (head=${head_ref}) by v${NEXT}…"
               if gh pr close "$num" \
