@@ -1,0 +1,21 @@
+# CODEOWNERS — rational-release
+#
+# Spec: https://docs.github.com/en/repositories/managing-your-repositories-settings-and-customizations/customizing-your-repository/about-code-owners
+#
+# rational-release is a small-team release-engineering toolkit
+# distributed via JSR and as reusable GitHub Actions workflows that
+# downstream consumers pin to the floating `@v1` tag. A single
+# unreviewed change to .github/workflows/ or cli/ fans out to every
+# consumer on their next push, so every path requires explicit sign-off
+# from the maintainer.
+#
+# Pair this file with the main-branch ruleset's "Require review from
+# Code Owners" rule for the gate to be enforced. Org-level admins (set
+# on the sigmadigitalza org, not via this file) retain admin access for
+# operational recovery.
+#
+# Spec note: the last matching pattern wins. The catch-all below
+# applies to every file; add more specific lines above it if a path
+# ever needs an additional reviewer.
+
+* @Pushplaybang
