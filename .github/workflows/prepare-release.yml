@@ -399,3 +399,57 @@ jobs:
             gh pr create --base "${GITHUB_REF_NAME:-main}" --head "$branch" --title "$title" --body-file body.md
             echo "### 🆕 Opened release PR for v${NEXT}" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+      - name: Supersede stale release PRs
+        # All untrusted-input concerns are routed through env: vars
+        # (PREFIX from workflow_call inputs, NEXT from a computed semver
+        # string). No github.event.* fields appear in the run script.
+        if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREFIX: ${{ inputs.release-branch-prefix }}
+          NEXT: ${{ steps.bump.outputs.next }}
+        run: |
+          set -euo pipefail
+          # Bug shape this prevents: when a new commit lands between
+          # prepare-release runs and escalates the implied bump tier
+          # (e.g. a feat: arrives while a release/v0.9.1 patch PR is
+          # still open), the new release branch is version-named
+          # (release/v0.10.0). "Open or update release PR" above keys
+          # "existing PR" by the new branch name, so it opens a
+          # parallel PR — the earlier release PR keeps its outdated
+          # changelog snapshot and stale manifest version. If the
+          # stale PR is merged anyway, cut-release derives the version
+          # from the merged branch name without recomputing, shipping
+          # a release under-classified against current main.
+          #
+          # Close any open release PRs (branches starting with PREFIX)
+          # whose head differs from the version we just computed, and
+          # delete the abandoned branch via --delete-branch. The new
+          # PR is already open at this point, so a failure here only
+          # leaves manual cleanup — the primary release flow is safe.
+          branch="${PREFIX}${NEXT}"
+          if [ -z "${PREFIX}" ]; then
+            echo "::warning::release-branch-prefix is empty; skipping stale PR sweep to avoid closing unrelated PRs"
+          else
+            # --limit 200: well above any realistic open-release-PR count;
+            # avoids silent truncation at the CLI default (30).
+            stale_prs=$(gh pr list \
+              --base "${GITHUB_REF_NAME:-main}" --state open \
+              --limit 200 \
+              --json number,headRefName \
+              --jq ".[] | select(.headRefName | startswith(\"${PREFIX}\")) | select(.headRefName != \"${branch}\") | [.number, .headRefName] | @tsv")
+            while IFS=$'\t' read -r num head_ref; do
+              # Skip blank lines that can arise from an empty here-string.
+              [ -z "$num" ] && continue
+              echo "Superseding stale release PR #${num} (head=${head_ref}) by v${NEXT}…"
+              if gh pr close "$num" \
+                --comment "Superseded by the v${NEXT} release PR — the implied bump escalated since this PR was opened." \
+                --delete-branch; then
+                echo "### 🧹 Superseded stale release PR #${num} (was \`${head_ref}\`)" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "::warning::failed to close stale PR #${num} (head=${head_ref}); leaving for manual cleanup"
+              fi
+            done <<< "$stale_prs"
+          fi
