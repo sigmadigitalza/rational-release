@@ -430,17 +430,23 @@ jobs:
           # PR is already open at this point, so a failure here only
           # leaves manual cleanup — the primary release flow is safe.
           branch="${PREFIX}${NEXT}"
-          while IFS=$'\t' read -r num head_ref; do
-            [ -z "$num" ] && continue
-            echo "Superseding stale release PR #${num} (head=${head_ref}) by v${NEXT}…"
-            if gh pr close "$num" \
-              --comment "Superseded by the v${NEXT} release PR — the implied bump escalated since this PR was opened." \
-              --delete-branch; then
-              echo "### 🧹 Superseded stale release PR #${num} (was \`${head_ref}\`)" >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "::warning::failed to close stale PR #${num} (head=${head_ref}); leaving for manual cleanup"
-            fi
-          done < <(gh pr list \
-            --base "${GITHUB_REF_NAME:-main}" --state open \
-            --json number,headRefName \
-            --jq ".[] | select(.headRefName | startswith(\"${PREFIX}\")) | select(.headRefName != \"${branch}\") | [.number, .headRefName] | @tsv")
+          if [ -z "${PREFIX}" ]; then
+            echo "::warning::release-branch-prefix is empty; skipping stale PR sweep to avoid closing unrelated PRs"
+          else
+            stale_prs=$(gh pr list \
+              --base "${GITHUB_REF_NAME:-main}" --state open \
+              --limit 200 \
+              --json number,headRefName \
+              --jq ".[] | select(.headRefName | startswith(\"${PREFIX}\")) | select(.headRefName != \"${branch}\") | [.number, .headRefName] | @tsv")
+            while IFS=$'\t' read -r num head_ref; do
+              [ -z "$num" ] && continue
+              echo "Superseding stale release PR #${num} (head=${head_ref}) by v${NEXT}…"
+              if gh pr close "$num" \
+                --comment "Superseded by the v${NEXT} release PR — the implied bump escalated since this PR was opened." \
+                --delete-branch; then
+                echo "### 🧹 Superseded stale release PR #${num} (was \`${head_ref}\`)" >> "$GITHUB_STEP_SUMMARY"
+              else
+                echo "::warning::failed to close stale PR #${num} (head=${head_ref}); leaving for manual cleanup"
+              fi
+            done <<< "$stale_prs"
+          fi
