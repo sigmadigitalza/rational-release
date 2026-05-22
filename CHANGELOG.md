@@ -7,13 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
 ### Changed
+
+- add CODEOWNERS — sole owner @Pushplaybang (#42 by @Pushplaybang)
 
 ### Fixed
 
-### Removed
+- supersede stale release PRs when bump tier escalates (#40 by @Pushplaybang)
 
 ## [1.6.0] - 2026-05-19
 
