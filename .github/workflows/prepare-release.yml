@@ -57,6 +57,10 @@ on:
         description: "Source for the rational-release CLI. A JSR specifier (default) or a local filesystem path. Use a path to dogfood an in-tree CLI."
         type: string
         default: "jsr:@sigmadigitalza/rational-release@^1"
+      post-push-workflows:
+        description: "Newline-separated workflow names to dispatch on the release branch after force-push, to re-trigger checks that don't fire on bot-authored pushes (anti-loop GitHub Actions suppression). Each workflow must declare a `workflow_dispatch:` trigger."
+        type: string
+        default: ""
       runs-on:
         type: string
         default: ubuntu-latest
@@ -453,3 +457,50 @@ jobs:
               fi
             done <<< "$stale_prs"
           fi
+
+      - name: Dispatch post-push workflows on release branch
+        # When prepare-release force-pushes the release branch using
+        # GITHUB_TOKEN, GitHub deliberately suppresses downstream `push`
+        # and `pull_request:synchronize` events to prevent recursive
+        # workflow runs:
+        # https://docs.github.com/en/actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow
+        #
+        # Workflows triggered on those events (CI, linters, validators)
+        # therefore never run on the bot-authored release PR — and any
+        # of them required via branch-protection status checks block
+        # the PR forever.
+        #
+        # `workflow_dispatch` and `repository_dispatch` are the only
+        # triggers explicitly NOT suppressed by GITHUB_TOKEN. So for
+        # each consumer-named workflow we call `gh workflow run`
+        # against the release branch. The dispatched run's status
+        # check attaches to the branch HEAD commit (== the PR head
+        # commit), satisfying required-status-checks.
+        #
+        # Each named workflow MUST declare a `workflow_dispatch:`
+        # trigger. Workflows that read `github.event.pull_request.*`
+        # need to handle the empty PR context on dispatch invocations
+        # (e.g. conventional-commits PR-title validation makes no
+        # sense for bot-authored release PRs — leave those on
+        # `pull_request:` only).
+        #
+        # All untrusted-input concerns are routed through env: vars.
+        if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true' && inputs.post-push-workflows != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREFIX: ${{ inputs.release-branch-prefix }}
+          NEXT: ${{ steps.bump.outputs.next }}
+          WORKFLOWS: ${{ inputs.post-push-workflows }}
+        run: |
+          set -euo pipefail
+          branch="${PREFIX}${NEXT}"
+          while IFS= read -r wf; do
+            [ -z "$wf" ] && continue
+            echo "Dispatching workflow: ${wf} on ${branch}"
+            if gh workflow run "$wf" --ref "$branch"; then
+              echo "### 🚀 Dispatched \`${wf}\` on \`${branch}\`" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::warning::failed to dispatch ${wf} on ${branch}; status check will be missing on the release PR"
+            fi
+          done <<< "$WORKFLOWS"

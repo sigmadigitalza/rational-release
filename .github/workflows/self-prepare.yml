@@ -40,3 +40,11 @@ jobs:
         deno run --allow-read --allow-write --allow-run --allow-env cli/mod.ts build-changelog --format html --output docs/changelog.html --next-version "$RR_NEXT_VERSION"
       commit-paths: |
         docs/changelog.html
+      # Re-trigger CI on the release branch after force-push, since
+      # bot-authored pushes via GITHUB_TOKEN don't fire `pull_request:
+      # synchronize`. `Validate PR` intentionally stays on the standard
+      # `pull_request:` trigger only — the bot-authored release PR
+      # title ("Release vX.Y.Z") is not a conventional-commit subject,
+      # and gating it as such would always fail.
+      post-push-workflows: |
+        CI

@@ -128,6 +128,7 @@ tag matches the manifest before publishing. This avoids the CodeQL
 | `changelog-path` | `CHANGELOG.md` | Path to the canonical changelog. |
 | `bootstrap-changelog` | `true` | Auto-create the changelog with a Keep-a-Changelog skeleton if missing. |
 | `cli` | `jsr:@sigmadigitalza/rational-release@^1` | CLI source. JSR specifier (default) or local path (`./cli/mod.ts`) for dogfooding. |
+| `post-push-workflows` | _(empty)_ | Newline-separated workflow names to dispatch on the release branch after force-push. Use this to re-trigger PR checks that don't fire on bot-authored pushes (anti-loop GitHub Actions suppression — see [`docs/advanced`](docs/advanced.html#post-push-workflows)). Each named workflow must declare a `workflow_dispatch:` trigger. |
 | `runs-on` | `ubuntu-latest` | Runner label. |
 
 ### `cut-release.yml`
