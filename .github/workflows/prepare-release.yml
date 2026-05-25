@@ -68,6 +68,10 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # actions: write is needed by the optional "Dispatch post-push
+  # workflows" step (`gh workflow run` requires the token to have
+  # Actions write). Harmless on calls that don't use that input.
+  actions: write
 
 jobs:
   prepare:
@@ -495,8 +499,16 @@ jobs:
         run: |
           set -euo pipefail
           branch="${PREFIX}${NEXT}"
-          while IFS= read -r wf; do
+          while IFS= read -r raw; do
+            # Trim surrounding whitespace (incl. CR from CRLF input).
+            wf="${raw#"${raw%%[![:space:]]*}"}"
+            wf="${wf%"${wf##*[![:space:]]}"}"
+            # Skip blank lines and `# ...` comment lines so callers can
+            # annotate the list inline (`docs/advanced.html` example).
             [ -z "$wf" ] && continue
+            case "$wf" in
+              \#*) continue ;;
+            esac
             echo "Dispatching workflow: ${wf} on ${branch}"
             if gh workflow run "$wf" --ref "$branch"; then
               echo "### 🚀 Dispatched \`${wf}\` on \`${branch}\`" >> "$GITHUB_STEP_SUMMARY"

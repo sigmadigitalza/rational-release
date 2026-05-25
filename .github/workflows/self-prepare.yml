@@ -25,6 +25,10 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # actions: write — required by `post-push-workflows` (the wrapper
+  # below uses it) to call `gh workflow run`. Inherited into the
+  # reusable workflow's job.
+  actions: write
 
 jobs:
   prepare:
