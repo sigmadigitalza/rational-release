@@ -441,13 +441,24 @@ jobs:
           if [ -z "${PREFIX}" ]; then
             echo "::warning::release-branch-prefix is empty; skipping stale PR sweep to avoid closing unrelated PRs"
           else
-            # --limit 200: well above any realistic open-release-PR count;
-            # avoids silent truncation at the CLI default (30).
+            # --limit 200: well above any realistic open-release-PR
+            # count; avoids silent truncation at the CLI default (30).
+            #
+            # PREFIX and branch are passed to jq via --arg rather than
+            # string-interpolated into the filter. A caller setting a
+            # prefix containing `"` can't break out of the jq filter
+            # string. (jq is sandboxed — no shell, no RCE — but the
+            # injection could still cause the sweep to match wrong PRs.
+            # --arg is the canonical jq-safe pattern.) gh's --jq doesn't
+            # accept --arg; pipe to the standalone jq (preinstalled on
+            # ubuntu-latest runners) and use that. `set -o pipefail`
+            # propagates a gh failure through the pipeline.
             stale_prs=$(gh pr list \
               --base "${GITHUB_REF_NAME:-main}" --state open \
               --limit 200 \
               --json number,headRefName \
-              --jq ".[] | select(.headRefName | startswith(\"${PREFIX}\")) | select(.headRefName != \"${branch}\") | [.number, .headRefName] | @tsv")
+              | jq -r --arg p "$PREFIX" --arg b "$branch" \
+                '.[] | select(.headRefName | startswith($p)) | select(.headRefName != $b) | [.number, .headRefName] | @tsv')
             while IFS=$'\t' read -r num head_ref; do
               # Skip blank lines that can arise from an empty here-string.
               [ -z "$num" ] && continue
@@ -455,7 +466,15 @@ jobs:
               if gh pr close "$num" \
                 --comment "Superseded by the v${NEXT} release PR — the implied bump escalated since this PR was opened." \
                 --delete-branch; then
-                echo "### 🧹 Superseded stale release PR #${num} (was \`${head_ref}\`)" >> "$GITHUB_STEP_SUMMARY"
+                # head_ref comes from a PR's head branch. For fork-PRs,
+                # the fork owner can name the branch arbitrarily and
+                # git-check-ref-format permits backticks. Strip them
+                # before rendering as Markdown in the step summary so a
+                # name like `release/v` + backtick + `evil` can't break
+                # out of the inline-code span. Other Markdown-meaningful
+                # characters don't escape an inline-code span.
+                safe_ref="${head_ref//\`/}"
+                echo "### 🧹 Superseded stale release PR #${num} (was \`${safe_ref}\`)" >> "$GITHUB_STEP_SUMMARY"
               else
                 echo "::warning::failed to close stale PR #${num} (head=${head_ref}); leaving for manual cleanup"
               fi
