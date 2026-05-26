@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Removed
+
+## [1.7.0] - 2026-05-26
+
+### Added
+
 - post-push-workflows input to re-trigger required checks on bot-authored release PRs (#43 by @Pushplaybang)
 
 ### Changed
