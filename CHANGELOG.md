@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- post-push-workflows input to re-trigger required checks on bot-authored release PRs (#43 by @Pushplaybang)
+
 ### Changed
 
-### Fixed
-
-### Removed
+- bump SHA-pinned actions to Node 24-compatible versions (#44 by @Pushplaybang)
 
 ## [1.6.1] - 2026-05-24
 
