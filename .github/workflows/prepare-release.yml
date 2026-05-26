@@ -212,7 +212,11 @@ jobs:
             echo "Triggering commit is the merge of ${head_ref} — cut-release will handle this. Skipping prepare-release."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "head-ref=$head_ref" >> "$GITHUB_OUTPUT"
-            echo "### ⏭️ Skipped: triggering commit is a release-merge (\`${head_ref}\`)" >> "$GITHUB_STEP_SUMMARY"
+            # Strip backticks before writing to the Markdown step
+            # summary — head_ref comes from a merged PR's head branch
+            # and git-check-ref-format permits backticks (see the
+            # supersede-stale step for the longer rationale).
+            echo "### ⏭️ Skipped: triggering commit is a release-merge (\`${head_ref//\`/}\`)" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -530,7 +534,12 @@ jobs:
             esac
             echo "Dispatching workflow: ${wf} on ${branch}"
             if gh workflow run "$wf" --ref "$branch"; then
-              echo "### 🚀 Dispatched \`${wf}\` on \`${branch}\`" >> "$GITHUB_STEP_SUMMARY"
+              # Strip backticks from both interpolated values before
+              # rendering as Markdown — `wf` comes from the caller's
+              # post-push-workflows input (trusted but worth defending
+              # in depth) and `branch` is `${PREFIX}${NEXT}` where
+              # PREFIX is the caller's release-branch-prefix input.
+              echo "### 🚀 Dispatched \`${wf//\`/}\` on \`${branch//\`/}\`" >> "$GITHUB_STEP_SUMMARY"
             else
               echo "::warning::failed to dispatch ${wf} on ${branch}; status check will be missing on the release PR"
             fi
