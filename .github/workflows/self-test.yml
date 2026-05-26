@@ -8,6 +8,12 @@ on:
   pull_request:
   push:
     branches: [main]
+  # workflow_dispatch lets prepare-release re-trigger CI against the
+  # release branch — bot-authored pushes via GITHUB_TOKEN don't fire
+  # `pull_request:synchronize`, so without this the release PR's `ci`
+  # check would never appear. See `post-push-workflows` input in
+  # prepare-release.yml.
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

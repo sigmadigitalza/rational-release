@@ -57,6 +57,10 @@ on:
         description: "Source for the rational-release CLI. A JSR specifier (default) or a local filesystem path. Use a path to dogfood an in-tree CLI."
         type: string
         default: "jsr:@sigmadigitalza/rational-release@^1"
+      post-push-workflows:
+        description: "Newline-separated workflow names to dispatch on the release branch after force-push, to re-trigger checks that don't fire on bot-authored pushes (anti-loop GitHub Actions suppression). Each workflow must declare a `workflow_dispatch:` trigger."
+        type: string
+        default: ""
       runs-on:
         type: string
         default: ubuntu-latest
@@ -64,6 +68,10 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # actions: write is needed by the optional "Dispatch post-push
+  # workflows" step (`gh workflow run` requires the token to have
+  # Actions write). Harmless on calls that don't use that input.
+  actions: write
 
 jobs:
   prepare:
@@ -204,7 +212,11 @@ jobs:
             echo "Triggering commit is the merge of ${head_ref} — cut-release will handle this. Skipping prepare-release."
             echo "skip=true" >> "$GITHUB_OUTPUT"
             echo "head-ref=$head_ref" >> "$GITHUB_OUTPUT"
-            echo "### ⏭️ Skipped: triggering commit is a release-merge (\`${head_ref}\`)" >> "$GITHUB_STEP_SUMMARY"
+            # Strip backticks before writing to the Markdown step
+            # summary — head_ref comes from a merged PR's head branch
+            # and git-check-ref-format permits backticks (see the
+            # supersede-stale step for the longer rationale).
+            echo "### ⏭️ Skipped: triggering commit is a release-merge (\`${head_ref//\`/}\`)" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -433,13 +445,24 @@ jobs:
           if [ -z "${PREFIX}" ]; then
             echo "::warning::release-branch-prefix is empty; skipping stale PR sweep to avoid closing unrelated PRs"
           else
-            # --limit 200: well above any realistic open-release-PR count;
-            # avoids silent truncation at the CLI default (30).
+            # --limit 200: well above any realistic open-release-PR
+            # count; avoids silent truncation at the CLI default (30).
+            #
+            # PREFIX and branch are passed to jq via --arg rather than
+            # string-interpolated into the filter. A caller setting a
+            # prefix containing `"` can't break out of the jq filter
+            # string. (jq is sandboxed — no shell, no RCE — but the
+            # injection could still cause the sweep to match wrong PRs.
+            # --arg is the canonical jq-safe pattern.) gh's --jq doesn't
+            # accept --arg; pipe to the standalone jq (preinstalled on
+            # ubuntu-latest runners) and use that. `set -o pipefail`
+            # propagates a gh failure through the pipeline.
             stale_prs=$(gh pr list \
               --base "${GITHUB_REF_NAME:-main}" --state open \
               --limit 200 \
               --json number,headRefName \
-              --jq ".[] | select(.headRefName | startswith(\"${PREFIX}\")) | select(.headRefName != \"${branch}\") | [.number, .headRefName] | @tsv")
+              | jq -r --arg p "$PREFIX" --arg b "$branch" \
+                '.[] | select(.headRefName | startswith($p)) | select(.headRefName != $b) | [.number, .headRefName] | @tsv')
             while IFS=$'\t' read -r num head_ref; do
               # Skip blank lines that can arise from an empty here-string.
               [ -z "$num" ] && continue
@@ -447,9 +470,77 @@ jobs:
               if gh pr close "$num" \
                 --comment "Superseded by the v${NEXT} release PR — the implied bump escalated since this PR was opened." \
                 --delete-branch; then
-                echo "### 🧹 Superseded stale release PR #${num} (was \`${head_ref}\`)" >> "$GITHUB_STEP_SUMMARY"
+                # head_ref comes from a PR's head branch. For fork-PRs,
+                # the fork owner can name the branch arbitrarily and
+                # git-check-ref-format permits backticks. Strip them
+                # before rendering as Markdown in the step summary so a
+                # name like `release/v` + backtick + `evil` can't break
+                # out of the inline-code span. Other Markdown-meaningful
+                # characters don't escape an inline-code span.
+                safe_ref="${head_ref//\`/}"
+                echo "### 🧹 Superseded stale release PR #${num} (was \`${safe_ref}\`)" >> "$GITHUB_STEP_SUMMARY"
               else
                 echo "::warning::failed to close stale PR #${num} (head=${head_ref}); leaving for manual cleanup"
               fi
             done <<< "$stale_prs"
           fi
+
+      - name: Dispatch post-push workflows on release branch
+        # When prepare-release force-pushes the release branch using
+        # GITHUB_TOKEN, GitHub deliberately suppresses downstream `push`
+        # and `pull_request:synchronize` events to prevent recursive
+        # workflow runs:
+        # https://docs.github.com/en/actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow
+        #
+        # Workflows triggered on those events (CI, linters, validators)
+        # therefore never run on the bot-authored release PR — and any
+        # of them required via branch-protection status checks block
+        # the PR forever.
+        #
+        # `workflow_dispatch` and `repository_dispatch` are the only
+        # triggers explicitly NOT suppressed by GITHUB_TOKEN. So for
+        # each consumer-named workflow we call `gh workflow run`
+        # against the release branch. The dispatched run's status
+        # check attaches to the branch HEAD commit (== the PR head
+        # commit), satisfying required-status-checks.
+        #
+        # Each named workflow MUST declare a `workflow_dispatch:`
+        # trigger. Workflows that read `github.event.pull_request.*`
+        # need to handle the empty PR context on dispatch invocations
+        # (e.g. conventional-commits PR-title validation makes no
+        # sense for bot-authored release PRs — leave those on
+        # `pull_request:` only).
+        #
+        # All untrusted-input concerns are routed through env: vars.
+        if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true' && inputs.post-push-workflows != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PREFIX: ${{ inputs.release-branch-prefix }}
+          NEXT: ${{ steps.bump.outputs.next }}
+          WORKFLOWS: ${{ inputs.post-push-workflows }}
+        run: |
+          set -euo pipefail
+          branch="${PREFIX}${NEXT}"
+          while IFS= read -r raw; do
+            # Trim surrounding whitespace (incl. CR from CRLF input).
+            wf="${raw#"${raw%%[![:space:]]*}"}"
+            wf="${wf%"${wf##*[![:space:]]}"}"
+            # Skip blank lines and `# ...` comment lines so callers can
+            # annotate the list inline (`docs/advanced.html` example).
+            [ -z "$wf" ] && continue
+            case "$wf" in
+              \#*) continue ;;
+            esac
+            echo "Dispatching workflow: ${wf} on ${branch}"
+            if gh workflow run "$wf" --ref "$branch"; then
+              # Strip backticks from both interpolated values before
+              # rendering as Markdown — `wf` comes from the caller's
+              # post-push-workflows input (trusted but worth defending
+              # in depth) and `branch` is `${PREFIX}${NEXT}` where
+              # PREFIX is the caller's release-branch-prefix input.
+              echo "### 🚀 Dispatched \`${wf//\`/}\` on \`${branch//\`/}\`" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::warning::failed to dispatch ${wf} on ${branch}; status check will be missing on the release PR"
+            fi
+          done <<< "$WORKFLOWS"

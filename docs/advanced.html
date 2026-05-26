@@ -100,6 +100,57 @@
       always staged automatically. <code>commit-paths</code> is purely additive.
     </p>
 
+    <h2 id="post-push-workflows">Re-triggering required checks on the release PR</h2>
+
+    <p>
+      When <code>prepare-release</code> force-pushes the release branch using
+      <code>GITHUB_TOKEN</code>, GitHub
+      <a href="https://docs.github.com/en/actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow">deliberately suppresses</a>
+      the downstream <code>push</code> and <code>pull_request:synchronize</code> events that
+      would normally fire on PR head updates. This is the
+      <em>anti-loop</em> protection that stops a workflow from
+      recursively triggering itself.
+    </p>
+
+    <p>
+      Side effect: any workflow that gates the release PR via
+      <code>pull_request:</code> &mdash; CI, linters, conventional-commit validators &mdash;
+      never gets a chance to run. If those checks are
+      <em>required</em> in branch protection or a ruleset, the release PR
+      can never satisfy them and is permanently blocked.
+    </p>
+
+    <p>
+      <code>workflow_dispatch</code> and <code>repository_dispatch</code> are the
+      <em>only</em> triggers explicitly excluded from the suppression.
+      Use the <code>post-push-workflows</code> input to have
+      <code>prepare-release</code> call <code>gh workflow run</code> against the release branch
+      after force-push. The dispatched run&rsquo;s status check attaches to the branch
+      HEAD commit (which is also the PR head commit), satisfying required-status-checks.
+    </p>
+
+<pre><code><span class="tok-k">with</span>:
+  <span class="tok-k">post-push-workflows</span>: |
+    CI
+    Lint
+    <span class="tok-c"># one workflow name per line; each must declare a `workflow_dispatch:` trigger</span></code></pre>
+
+    <p>
+      Each named workflow must declare <code>workflow_dispatch:</code> in its <code>on:</code> block.
+      Workflows that read <code>github.event.pull_request.*</code> need to handle the empty PR
+      context on dispatch invocations (or stay on <code>pull_request:</code> only). The
+      canonical case: validating that the PR title is a conventional-commit subject doesn&rsquo;t
+      make sense for bot-authored release PRs (whose title is intentionally
+      <code>Release vX.Y.Z</code>), so leave that workflow off the dispatch list.
+    </p>
+
+    <p>
+      If <code>gh workflow run</code> fails for a named workflow (it doesn&rsquo;t exist, has no
+      <code>workflow_dispatch:</code> trigger, etc.), the step emits a warning and continues &mdash;
+      the release PR is opened either way; you just have to dispatch the missing check
+      manually.
+    </p>
+
     <h2 id="artefacts">Attaching artefacts to the GitHub Release</h2>
 
     <p>
