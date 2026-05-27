@@ -111,7 +111,9 @@ export async function supersedeStale(
   if (!listResult.ok) {
     throw new Error(`gh pr list failed: ${listResult.stderr.trim()}`);
   }
-  const allPrs: OpenPr[] = JSON.parse(listResult.stdout || "[]");
+  // Trim before the `|| "[]"` fallback so whitespace-only output
+  // (e.g. a stray "\n") still parses as an empty array.
+  const allPrs: OpenPr[] = JSON.parse(listResult.stdout.trim() || "[]");
   const matched = filterStale(allPrs, opts.prefix, opts.currentBranch);
 
   const closed: PrAction[] = [];

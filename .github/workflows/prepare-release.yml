@@ -176,7 +176,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CLI: ${{ inputs.cli }}
         run: |
-          deno run --allow-read --allow-env --allow-run=gh \
+          deno run --allow-env --allow-run=gh \
             --allow-write="$GITHUB_OUTPUT,$GITHUB_STEP_SUMMARY" \
             "$CLI" detect-release-merge
 
@@ -383,7 +383,7 @@ jobs:
           PREFIX: ${{ inputs.release-branch-prefix }}
           NEXT: ${{ steps.bump.outputs.next }}
         run: |
-          deno run --allow-read --allow-env --allow-run=gh \
+          deno run --allow-env --allow-run=gh \
             --allow-write="$GITHUB_STEP_SUMMARY" \
             "$CLI" supersede-stale \
               --prefix "$PREFIX" \
@@ -404,6 +404,6 @@ jobs:
           NEXT: ${{ steps.bump.outputs.next }}
           WORKFLOWS: ${{ inputs.post-push-workflows }}
         run: |
-          deno run --allow-read --allow-env --allow-run=gh \
+          deno run --allow-env --allow-run=gh \
             --allow-write="$GITHUB_STEP_SUMMARY" \
             "$CLI" dispatch-workflows --ref "${PREFIX}${NEXT}"

@@ -792,7 +792,9 @@ async function cmdDetectReleaseMerge(args: string[]): Promise<void> {
     process.stdout.write(output);
   }
   if (result.headRef !== null) {
-    console.log(
+    // stderr, not stdout — the machine-parseable key=value output
+    // above is on stdout and must not interleave with human text.
+    console.error(
       `Triggering commit is the merge of ${result.headRef} — cut-release will handle this. Skipping prepare-release.`,
     );
     await appendStepSummary(
