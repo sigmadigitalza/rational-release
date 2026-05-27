@@ -65,6 +65,9 @@ import {
   runGit,
   tagDate,
 } from "./build_changelog.ts";
+import { detectReleaseMerge } from "./detect_release_merge.ts";
+import { safeRef, supersedeStale } from "./supersede_stale.ts";
+import { dispatchWorkflows, safeName } from "./dispatch_workflows.ts";
 
 const USAGE = `\
 rational-release <subcommand> [args...]
@@ -151,6 +154,31 @@ Subcommands:
       date, or --next-date if you need to override) rather than to the
       Unreleased bucket. The generated compare link points at v<X.Y.Z>,
       which becomes valid once cut-release tags it.
+
+  detect-release-merge [--sha SHA] [--repo OWNER/REPO] [--prefix release/v]
+      Look up merged PRs whose merge commit equals SHA and report whether
+      any has a head ref starting with PREFIX. SHA / repo default to
+      GITHUB_SHA / GITHUB_REPOSITORY. Writes \`skip=true|false\` and
+      \`head-ref=...\` to GITHUB_OUTPUT (when set) and a skip line to
+      GITHUB_STEP_SUMMARY (when a match is found). Retries transient gh
+      failures; on persistent failure emits a warning and treats as "no
+      match" (proceed). Used by prepare-release as a race-guard.
+
+  supersede-stale --current BRANCH --version X.Y.Z [--prefix release/v]
+                  [--base main]
+      List open PRs against BASE whose head starts with PREFIX but isn't
+      BRANCH, and close each with a "superseded by" comment + branch
+      delete. Empty PREFIX is rejected (would close unrelated PRs).
+      Writes one summary line per closed PR to GITHUB_STEP_SUMMARY; per-
+      PR failures become warnings, do not abort.
+
+  dispatch-workflows --ref REF [--workflows-file FILE] [--from-env VAR]
+      Trigger each named workflow on REF via \`gh workflow run\`. Input
+      list is newline-separated; whitespace is trimmed and \`# ...\`
+      comment lines are skipped. Source order: --workflows-file,
+      --from-env VAR (default WORKFLOWS), stdin. Failures become
+      warnings, do not abort. Used by prepare-release's optional
+      post-push-workflows input.
 `;
 
 async function readStdin(): Promise<string> {
@@ -721,6 +749,15 @@ async function main(): Promise<void> {
     case "build-changelog":
       await cmdBuildChangelog(rest);
       return;
+    case "detect-release-merge":
+      await cmdDetectReleaseMerge(rest);
+      return;
+    case "supersede-stale":
+      await cmdSupersedeStale(rest);
+      return;
+    case "dispatch-workflows":
+      await cmdDispatchWorkflows(rest);
+      return;
     case "--help":
     case "-h":
     case undefined:
@@ -729,6 +766,113 @@ async function main(): Promise<void> {
     default:
       console.error(`Unknown subcommand: ${sub}\n\n${USAGE}`);
       process.exit(2);
+  }
+}
+
+async function cmdDetectReleaseMerge(args: string[]): Promise<void> {
+  const sha = takeOption(args, "--sha") ?? process.env.GITHUB_SHA ?? "";
+  const repo = takeOption(args, "--repo") ??
+    process.env.GITHUB_REPOSITORY ?? "";
+  const prefix = takeOption(args, "--prefix") ?? "release/v";
+  if (!sha || !repo) {
+    console.error(
+      "detect-release-merge: --sha + --repo (or GITHUB_SHA + GITHUB_REPOSITORY env) required",
+    );
+    process.exit(2);
+  }
+  const result = await detectReleaseMerge({ sha, repo, prefix });
+  for (const w of result.warnings) console.warn(`::warning::${w}`);
+
+  const output = `skip=${result.headRef !== null}\nhead-ref=${
+    result.headRef ?? ""
+  }\n`;
+  if (process.env.GITHUB_OUTPUT) {
+    await appendFile(process.env.GITHUB_OUTPUT, output);
+  } else {
+    process.stdout.write(output);
+  }
+  if (result.headRef !== null) {
+    console.log(
+      `Triggering commit is the merge of ${result.headRef} — cut-release will handle this. Skipping prepare-release.`,
+    );
+    await appendStepSummary(
+      `### ⏭️ Skipped: triggering commit is a release-merge (\`${
+        result.headRef.replaceAll("`", "")
+      }\`)\n`,
+    );
+  }
+}
+
+async function cmdSupersedeStale(args: string[]): Promise<void> {
+  const prefix = takeOption(args, "--prefix") ?? "release/v";
+  const currentBranch = takeOption(args, "--current");
+  const version = takeOption(args, "--version");
+  const base = takeOption(args, "--base") ?? process.env.GITHUB_REF_NAME ??
+    "main";
+  if (!currentBranch || !version) {
+    console.error("supersede-stale: --current + --version required");
+    process.exit(2);
+  }
+  const result = await supersedeStale({
+    prefix,
+    currentBranch,
+    version,
+    base,
+  });
+  if (result.skipped) {
+    console.warn(
+      "::warning::release-branch-prefix is empty; skipping stale PR sweep to avoid closing unrelated PRs",
+    );
+    return;
+  }
+  for (const pr of result.closed) {
+    console.log(
+      `Superseded stale release PR #${pr.number} (head=${pr.headRefName}) by v${version}`,
+    );
+    await appendStepSummary(
+      `### 🧹 Superseded stale release PR #${pr.number} (was \`${
+        safeRef(pr.headRefName)
+      }\`)\n`,
+    );
+  }
+  for (const pr of result.failed) {
+    console.warn(
+      `::warning::failed to close stale PR #${pr.number} (head=${pr.headRefName}); leaving for manual cleanup`,
+    );
+  }
+}
+
+async function cmdDispatchWorkflows(args: string[]): Promise<void> {
+  const ref = takeOption(args, "--ref");
+  const workflowsFile = takeOption(args, "--workflows-file");
+  const fromEnv = takeOption(args, "--from-env") ?? "WORKFLOWS";
+  if (!ref) {
+    console.error("dispatch-workflows: --ref required");
+    process.exit(2);
+  }
+  let workflows: string;
+  if (workflowsFile) {
+    workflows = await readFile(workflowsFile, "utf-8");
+  } else if (process.env[fromEnv]) {
+    workflows = process.env[fromEnv]!;
+  } else if (!process.stdin.isTTY) {
+    workflows = await readStdin();
+  } else {
+    workflows = "";
+  }
+  const result = await dispatchWorkflows({ workflows, ref });
+  for (const wf of result.dispatched) {
+    console.log(`Dispatched workflow: ${wf.name} on ${ref}`);
+    await appendStepSummary(
+      `### 🚀 Dispatched \`${safeName(wf.name)}\` on \`${
+        ref.replaceAll("`", "")
+      }\`\n`,
+    );
+  }
+  for (const wf of result.failed) {
+    console.warn(
+      `::warning::failed to dispatch ${wf.name} on ${ref}; status check will be missing on the release PR`,
+    );
   }
 }
 
