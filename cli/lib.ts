@@ -263,3 +263,10 @@ export {
   type OpenOrUpdateResult,
   renderBody,
 } from "./open_or_update_pr.ts";
+
+// Read manifest + commits → current / next / bumped (combined helper)
+export {
+  type ComputeNextOptions,
+  type ComputeNextResult,
+  computeNextVersion,
+} from "./compute_next_version.ts";

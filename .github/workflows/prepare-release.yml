@@ -82,13 +82,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
-          # Explicit fetch-tags is required even with fetch-depth: 0.
-          # Without this, when prepare-release fires immediately after
-          # a cut-release that just pushed `vX.Y.Z`, the new tag is
-          # absent from the local clone and `git tag --list` returns
-          # empty — so we incorrectly treat this as the first release
-          # and re-walk all commits from the start of history,
-          # producing a release PR with already-shipped PR titles.
+          # fetch-tags is needed even with fetch-depth: 0 — without it
+          # `git tag --list` can race a just-pushed vX.Y.Z and re-walk
+          # history into a phantom next-release PR.
           fetch-tags: true
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -127,42 +123,24 @@ jobs:
         id: bump
         shell: bash
         env:
+          CLI: ${{ inputs.cli }}
           MANIFEST: ${{ inputs.manifest-path }}
           JSONPATH: ${{ inputs.manifest-jsonpath }}
           PRE1: ${{ inputs.pre1-cap }}
           PATCH_TYPES: ${{ inputs.patch-types }}
           MINOR_TYPES: ${{ inputs.minor-types }}
-          CLI: ${{ inputs.cli }}
         run: |
-          set -euo pipefail
-          current=$(deno run --allow-read "$CLI" read-version "$MANIFEST" --jsonpath "$JSONPATH")
-          if [ -z "$current" ]; then
-            echo "::error::read-version returned empty string from ${MANIFEST}"
-            exit 1
-          fi
-          flags=( --jsonpath "$JSONPATH" --commits-file commits.txt )
+          flags=( --commits-file commits.txt --jsonpath "$JSONPATH" )
           [ "$PRE1" = "true" ] && flags+=( --pre-1.0-cap )
           [ -n "$PATCH_TYPES" ] && flags+=( --patch-types "$PATCH_TYPES" )
           [ -n "$MINOR_TYPES" ] && flags+=( --minor-types "$MINOR_TYPES" )
-          next=$(deno run --allow-read "$CLI" next-version "$MANIFEST" "${flags[@]}")
-          if [ -z "$next" ]; then
-            echo "::error::next-version returned empty string"
-            exit 1
-          fi
-          echo "current=$current" | tee -a "$GITHUB_OUTPUT"
-          echo "next=$next" | tee -a "$GITHUB_OUTPUT"
-          if [ "$current" = "$next" ]; then
-            echo "bumped=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "bumped=true" >> "$GITHUB_OUTPUT"
-            echo "### 📦 Version bump: \`${current}\` → \`${next}\`" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          deno run --allow-read --allow-env \
+            --allow-write="$GITHUB_OUTPUT,$GITHUB_STEP_SUMMARY" \
+            "$CLI" compute-next-version "$MANIFEST" "${flags[@]}"
 
       - name: Detect release-merge commit
-        # Race guard: when a release/v* PR merges, prepare-release and
-        # cut-release fire on the same SHA. Without this, prepare-release
-        # re-walks shipped commits into a phantom next-release PR.
-        # Logic + retry + summary writes live in the CLI (testable).
+        # Race guard against cut-release firing on the same SHA. See
+        # cli/detect_release_merge.ts for the why + retry behaviour.
         id: rm_guard
         shell: bash
         env:
@@ -174,6 +152,8 @@ jobs:
             "$CLI" detect-release-merge
 
       - name: Bail out if nothing to release
+        # Short-circuits the proceed/reason output when the rm_guard
+        # step skipped; otherwise delegates to the release-gate CLI.
         id: gate
         shell: bash
         env:
@@ -185,8 +165,6 @@ jobs:
           CLI: ${{ inputs.cli }}
         run: |
           set -euo pipefail
-          # Bridge the release-merge guard into the existing proceed/
-          # reason output that downstream steps already gate on.
           if [ "$GUARD_SKIP" = "true" ]; then
             echo "proceed=false" >> "$GITHUB_OUTPUT"
             echo "reason=release-merge commit (${GUARD_HEAD_REF})" >> "$GITHUB_OUTPUT"
@@ -199,16 +177,12 @@ jobs:
               --bumped "$BUMPED"
 
       - name: Run pre-tasks
+        # Runs the caller-provided shell block. Exposes RR_NEXT_VERSION
+        # and RR_PREV_TAG so tasks can attribute work to the upcoming
+        # release. Executed via `<<<` (stdin), not `eval`, so state
+        # persists across lines without eval-injection risk; inputs
+        # come from the caller's workflow file (trusted).
         if: steps.gate.outputs.proceed == 'true' && inputs.pre-tasks != ''
-        # Expose the computed bump so user pre-tasks (e.g. regenerating
-        # docs/changelog.html) can attribute commits to the upcoming
-        # release rather than the Unreleased bucket. RR_PREV_TAG is the
-        # tag the bump is being computed against (empty on first release).
-        #
-        # Security: the task block is executed in a single subshell via
-        # stdin (not eval), so state (cd, variables) persists across lines
-        # while still avoiding eval-based injection surfaces. Inputs come
-        # from the caller's workflow file (trusted).
         shell: bash
         env:
           RR_NEXT_VERSION: ${{ steps.bump.outputs.next }}
@@ -303,10 +277,9 @@ jobs:
           CHANGELOG: ${{ inputs.changelog-path }}
           CLI: ${{ inputs.cli }}
         run: |
-          set -euo pipefail
-          deno run --allow-read "$CLI" extract-section "$CHANGELOG" Unreleased \
-            > unreleased.md
-          [ -s unreleased.md ] || echo "_No entries in [Unreleased]._" > unreleased.md
+          deno run --allow-read "$CLI" \
+            extract-section "$CHANGELOG" Unreleased \
+            --fallback "_No entries in [Unreleased]._" > unreleased.md
 
       - name: Open or update release PR
         if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true'
@@ -328,9 +301,8 @@ jobs:
               --body-file body.md
 
       - name: Supersede stale release PRs
-        # Close any parallel release/v* PRs left over when a bump-tier
-        # escalation moved the new release to a different version-named
-        # branch. Filter, sweep, sanitise: all in the CLI.
+        # Close parallel release/v* PRs left over from a bump-tier
+        # escalation. See cli/supersede_stale.ts.
         if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true'
         shell: bash
         env:
@@ -347,10 +319,10 @@ jobs:
               --version "$NEXT"
 
       - name: Dispatch post-push workflows on release branch
-        # workflow_dispatch is the one trigger not suppressed by
-        # GITHUB_TOKEN; re-fire each named workflow on the release
-        # branch so its status check attaches to the PR's HEAD commit.
-        # Parse + dispatch + sanitise: all in the CLI.
+        # workflow_dispatch is the one trigger that isn't suppressed
+        # when GITHUB_TOKEN is the pusher — re-fire each named
+        # workflow so its status check attaches to the release-PR
+        # head commit. See cli/dispatch_workflows.ts.
         if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true' && inputs.post-push-workflows != ''
         shell: bash
         env:
