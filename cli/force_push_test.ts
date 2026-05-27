@@ -56,7 +56,7 @@ Deno.test("forcePush: retries transient failures then succeeds", async () => {
   eq(res.warnings.length, 2);
 });
 
-Deno.test("forcePush: throws after exhausting retries", async () => {
+Deno.test("forcePush: throws after exhausting retries, includes refspec + last stderr", async () => {
   const git: GitRunner = () =>
     Promise.resolve({ ok: false, stdout: "", stderr: "remote rejected" });
   await rejects(
@@ -67,7 +67,7 @@ Deno.test("forcePush: throws after exhausting retries", async () => {
         sleep: noSleep,
         retries: 3,
       }),
-    /git push failed after 3 attempts/,
+    /git push origin v1 failed after 3 attempts: remote rejected/,
   );
 });
 

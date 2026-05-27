@@ -85,7 +85,10 @@ export async function stagePrep(
   const exists = opts.pathExists ?? existsSync;
   const staged: string[] = [];
   const add = async (path: string) => {
-    const r = await git(["add", path]);
+    // `--` separates flags from paths so a path that happens to start
+    // with `-` (caller-controlled via inputs.manifest-path / commit-
+    // paths / mirror-paths) can't be parsed as a git option.
+    const r = await git(["add", "--", path]);
     if (!r.ok) {
       throw new Error(`git add ${path} failed: ${r.stderr.trim()}`);
     }
@@ -101,10 +104,18 @@ export async function stagePrep(
     if (exists(path)) await add(path);
   }
 
-  // `git diff --cached --quiet` exits 0 (ok=true) if there are NO
-  // staged changes, non-zero (ok=false) if there are.
+  // `git diff --cached --quiet` exit codes:
+  //   0  → no staged changes (skip commit, return changed=false)
+  //   1  → there ARE staged changes (proceed to commit)
+  //   >1 → real failure (not a repo, index corruption, etc.)
+  // Treating "any non-zero" as "changed" would mask real failures.
   const diff = await git(["diff", "--cached", "--quiet"]);
   if (diff.ok) return { changed: false, staged };
+  if (diff.code != null && diff.code !== 1) {
+    throw new Error(
+      `git diff --cached --quiet failed (code=${diff.code}): ${diff.stderr.trim()}`,
+    );
+  }
 
   const commit = await git([
     "commit",

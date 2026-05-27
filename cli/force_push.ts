@@ -52,16 +52,20 @@ export async function forcePush(
   const git = opts.gitRunner ?? defaultGitRunner;
   const sleep = opts.sleep ?? defaultSleep;
   const warnings: string[] = [];
+  let lastStderr = "";
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     const result = await git(["push", "--force", remote, opts.refspec]);
     if (result.ok) return { warnings };
+    lastStderr = result.stderr.trim();
     if (attempt < retries) {
       warnings.push(
-        `git push attempt ${attempt} failed, retrying in ${retryDelay}ms: ${result.stderr.trim()}`,
+        `git push attempt ${attempt} failed, retrying in ${retryDelay}ms: ${lastStderr}`,
       );
       await sleep(retryDelay);
     }
   }
-  throw new Error(`git push failed after ${retries} attempts`);
+  throw new Error(
+    `git push ${remote} ${opts.refspec} failed after ${retries} attempts: ${lastStderr}`,
+  );
 }

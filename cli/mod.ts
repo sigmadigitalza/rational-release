@@ -196,10 +196,14 @@ Subcommands:
       Run \`git log [TAG..HEAD] --format=%s\` and write subjects to
       FILE (one per line). Empty TAG walks full history (first release).
 
-  collect-merged-prs --since EPOCH --out FILE [--base BRANCH] [--limit N]
+  collect-merged-prs --out FILE [--prev-tag TAG | --since EPOCH]
+                     [--base BRANCH] [--limit N]
       Fetch merged PRs against BASE (default \`main\`) via
-      \`gh pr list --json\`, filter to \`mergedAt > EPOCH\`, write the
-      array to FILE as JSON. Retries transient gh failures.
+      \`gh pr list --json\`, filter to \`mergedAt > epoch\`, write the
+      array to FILE as JSON. Epoch source: \`--since EPOCH\` if given,
+      otherwise the committer time of \`--prev-tag\` (empty / unset
+      means epoch=0, include all merged PRs — first release). Retries
+      transient gh failures.
 
   stage-prep --manifest PATH --changelog PATH --version X.Y.Z
              [--bumped] [--mirrors STR] [--extras STR]

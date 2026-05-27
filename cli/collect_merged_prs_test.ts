@@ -81,9 +81,13 @@ Deno.test("collectMergedPrs: retries transient gh failures", async () => {
   eq(res.warnings.length, 2);
 });
 
-Deno.test("collectMergedPrs: throws after exhausting retries", async () => {
+Deno.test("collectMergedPrs: throws after exhausting retries, includes last stderr", async () => {
   const fail: GhRunner = () =>
-    Promise.resolve({ ok: false, stdout: "", stderr: "down" });
+    Promise.resolve({
+      ok: false,
+      stdout: "",
+      stderr: "API rate-limit exceeded",
+    });
   await rejects(
     () =>
       collectMergedPrs({
@@ -94,7 +98,7 @@ Deno.test("collectMergedPrs: throws after exhausting retries", async () => {
         writer: noWrite,
         retries: 3,
       }),
-    /gh pr list failed after 3 attempts/,
+    /gh pr list failed after 3 attempts: API rate-limit exceeded/,
   );
 });
 

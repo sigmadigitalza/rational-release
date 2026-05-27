@@ -15,11 +15,19 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-/** Result of one `git` invocation. */
+/**
+ * Result of one `git` invocation. `code` is the exit code when the
+ * subprocess exited normally with non-zero (e.g. `git diff --cached
+ * --quiet` returns 1 to signal "there are staged changes"; callers
+ * that need to distinguish that from a real error must read `code`).
+ * Undefined / null when injected by test stubs or when the process
+ * was killed by a signal.
+ */
 export interface GitResult {
   ok: boolean;
   stdout: string;
   stderr: string;
+  code?: number | null;
 }
 
 /** Pluggable runner for tests. Production uses `git` via subprocess. */
@@ -33,13 +41,19 @@ export const defaultGitRunner: GitRunner = async (args) => {
       ["--no-pager", ...args],
       { encoding: "utf-8" },
     );
-    return { ok: true, stdout, stderr };
+    return { ok: true, stdout, stderr, code: 0 };
   } catch (err: unknown) {
-    const e = err as { stdout?: string; stderr?: string; message?: string };
+    const e = err as {
+      stdout?: string;
+      stderr?: string;
+      message?: string;
+      code?: number | string | null;
+    };
     return {
       ok: false,
       stdout: e.stdout ?? "",
       stderr: e.stderr ?? e.message ?? "",
+      code: typeof e.code === "number" ? e.code : null,
     };
   }
 };

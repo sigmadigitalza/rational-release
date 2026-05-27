@@ -129,6 +129,7 @@ export async function collectMergedPrs(
     "number,title,mergedAt,author",
   ];
 
+  let lastStderr = "";
   for (let attempt = 1; attempt <= retries; attempt++) {
     const result = await gh(args);
     if (result.ok) {
@@ -137,12 +138,15 @@ export async function collectMergedPrs(
       await write(opts.outFile, JSON.stringify(filtered));
       return { count: filtered.length, warnings };
     }
+    lastStderr = result.stderr.trim();
     if (attempt < retries) {
       warnings.push(
-        `gh pr list attempt ${attempt} failed, retrying in ${retryDelay}ms`,
+        `gh pr list attempt ${attempt} failed, retrying in ${retryDelay}ms: ${lastStderr}`,
       );
       await sleep(retryDelay);
     }
   }
-  throw new Error(`gh pr list failed after ${retries} attempts`);
+  throw new Error(
+    `gh pr list failed after ${retries} attempts: ${lastStderr}`,
+  );
 }

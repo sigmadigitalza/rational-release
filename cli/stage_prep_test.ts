@@ -38,7 +38,10 @@ Deno.test("parseExtraPaths: trims + skips blanks + skips comments", () => {
 
 // Build a recording GitRunner that returns a configured response per command.
 const buildGit = (
-  responses: Record<string, { ok: boolean; stdout?: string; stderr?: string }>,
+  responses: Record<
+    string,
+    { ok: boolean; stdout?: string; stderr?: string; code?: number | null }
+  >,
   calls: (readonly string[])[],
 ): GitRunner =>
 (args) => {
@@ -50,16 +53,18 @@ const buildGit = (
     ok: r.ok,
     stdout: r.stdout ?? "",
     stderr: r.stderr ?? "",
+    code: r.code ?? (r.ok ? 0 : null),
   });
 };
+
+// Configured response for `git diff --cached --quiet` when there ARE
+// staged changes: exit 1 (ok=false, code=1).
+const DIFF_HAS_CHANGES = { ok: false, code: 1 };
 
 Deno.test("stagePrep: stages manifest when bumped, plus changelog, returns changed=true", async () => {
   const calls: (readonly string[])[] = [];
   const git = buildGit(
-    {
-      diff: { ok: false }, // diff --cached --quiet exits non-zero → there are staged changes
-      "*": { ok: true },
-    },
+    { diff: DIFF_HAS_CHANGES, "*": { ok: true } },
     calls,
   );
   const res = await stagePrep({
@@ -74,17 +79,40 @@ Deno.test("stagePrep: stages manifest when bumped, plus changelog, returns chang
   });
   eq(res.changed, true);
   eq(res.staged, ["deno.json", "CHANGELOG.md"]);
-  // First two should be git add ...; then git diff --cached --quiet; then git commit
-  eq(calls[0], ["add", "deno.json"]);
-  eq(calls[1], ["add", "CHANGELOG.md"]);
+  // First two should be git add -- ...; then git diff --cached --quiet; then git commit.
+  eq(calls[0], ["add", "--", "deno.json"]);
+  eq(calls[1], ["add", "--", "CHANGELOG.md"]);
   eq(calls[2], ["diff", "--cached", "--quiet"]);
   eq(calls[3][0], "commit");
   eq(calls[3][2], "chore(release): prep v1.7.0");
 });
 
+Deno.test("stagePrep: passes `--` before path to git add (option-injection guard)", async () => {
+  const calls: (readonly string[])[] = [];
+  const git = buildGit(
+    { diff: DIFF_HAS_CHANGES, "*": { ok: true } },
+    calls,
+  );
+  await stagePrep({
+    // A weird-but-valid path that LOOKS like a git flag.
+    manifest: "-A",
+    bumped: true,
+    changelog: "--all",
+    mirrors: "",
+    extras: "",
+    version: "1.0.0",
+    gitRunner: git,
+    pathExists: () => true,
+  });
+  // Both paths must be passed AFTER `--` so git treats them as paths,
+  // not as the `-A` / `--all` flags.
+  eq(calls[0], ["add", "--", "-A"]);
+  eq(calls[1], ["add", "--", "--all"]);
+});
+
 Deno.test("stagePrep: skips manifest when bumped=false", async () => {
   const calls: (readonly string[])[] = [];
-  const git = buildGit({ diff: { ok: false }, "*": { ok: true } }, calls);
+  const git = buildGit({ diff: DIFF_HAS_CHANGES, "*": { ok: true } }, calls);
   const res = await stagePrep({
     manifest: "deno.json",
     bumped: false,
@@ -100,7 +128,7 @@ Deno.test("stagePrep: skips manifest when bumped=false", async () => {
 
 Deno.test("stagePrep: stages mirror destinations that exist", async () => {
   const calls: (readonly string[])[] = [];
-  const git = buildGit({ diff: { ok: false }, "*": { ok: true } }, calls);
+  const git = buildGit({ diff: DIFF_HAS_CHANGES, "*": { ok: true } }, calls);
   const exists = (p: string) => p === "docs/changelog.md"; // only this one exists
   const res = await stagePrep({
     manifest: "deno.json",
@@ -117,7 +145,7 @@ Deno.test("stagePrep: stages mirror destinations that exist", async () => {
 
 Deno.test("stagePrep: stages extras that exist + skips missing", async () => {
   const calls: (readonly string[])[] = [];
-  const git = buildGit({ diff: { ok: false }, "*": { ok: true } }, calls);
+  const git = buildGit({ diff: DIFF_HAS_CHANGES, "*": { ok: true } }, calls);
   const exists = (p: string) => p !== "missing.txt";
   const res = await stagePrep({
     manifest: "deno.json",
@@ -130,6 +158,31 @@ Deno.test("stagePrep: stages extras that exist + skips missing", async () => {
     pathExists: exists,
   });
   eq(res.staged, ["CHANGELOG.md", "ui/search-index.json"]);
+});
+
+Deno.test("stagePrep: throws when diff exits with code > 1 (real failure, not 'has changes')", async () => {
+  const calls: (readonly string[])[] = [];
+  const git = buildGit(
+    {
+      diff: { ok: false, code: 128, stderr: "fatal: not a git repository" },
+      "*": { ok: true },
+    },
+    calls,
+  );
+  await rejects(
+    () =>
+      stagePrep({
+        manifest: "deno.json",
+        bumped: true,
+        changelog: "CHANGELOG.md",
+        mirrors: "",
+        extras: "",
+        version: "1.7.0",
+        gitRunner: git,
+        pathExists: () => true,
+      }),
+    /git diff --cached --quiet failed \(code=128\): fatal: not a git repository/,
+  );
 });
 
 Deno.test("stagePrep: changed=false when diff --cached --quiet exits 0 (no staged diff)", async () => {
@@ -174,7 +227,8 @@ Deno.test("stagePrep: throws on git add failure", async () => {
 Deno.test("stagePrep: throws on git commit failure", async () => {
   const git: GitRunner = (args) => {
     if (args[0] === "diff") {
-      return Promise.resolve({ ok: false, stdout: "", stderr: "" });
+      // Code 1 = "there are staged changes" — proceed to commit.
+      return Promise.resolve({ ok: false, stdout: "", stderr: "", code: 1 });
     }
     if (args[0] === "commit") {
       return Promise.resolve({ ok: false, stdout: "", stderr: "no identity" });
