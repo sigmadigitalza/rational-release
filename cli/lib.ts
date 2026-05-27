@@ -47,6 +47,13 @@
  *   {@link renderMarkdown}, {@link renderHtml}, plus the underlying
  *   classifiers and git-readers.
  *
+ * - **Release-tooling primitives** — `gh`-CLI-backed helpers used by
+ *   the reusable workflows. {@link detectReleaseMerge} (race guard for
+ *   prepare-release vs cut-release), {@link supersedeStale} (close
+ *   stale parallel release PRs), {@link dispatchWorkflows} (re-trigger
+ *   PR checks on bot-authored release branches). All take an injectable
+ *   {@link GhRunner} for testing.
+ *
  * **Stability.** This module is the documented programmatic API and
  * follows the same semver contract as the CLI: additive changes ship
  * as a minor; breaking changes require a major or a `!` marker.
@@ -171,3 +178,34 @@ export {
   tagDate,
   TYPE_TO_SECTION,
 } from "./build_changelog.ts";
+
+// gh subprocess wrapper — shared by the release-tooling modules below.
+export { defaultGhRunner, type GhResult, type GhRunner } from "./gh.ts";
+
+// Release-merge race guard
+export {
+  type DetectOptions as DetectReleaseMergeOptions,
+  detectReleaseMerge,
+  type DetectResult as DetectReleaseMergeResult,
+} from "./detect_release_merge.ts";
+
+// Supersede-stale-release-PRs sweep
+export {
+  filterStale,
+  type OpenPr,
+  type PrAction,
+  safeRef,
+  type SupersedeOptions,
+  type SupersedeResult,
+  supersedeStale,
+} from "./supersede_stale.ts";
+
+// Workflow-dispatch helper (post-push re-trigger)
+export {
+  type DispatchAction,
+  type DispatchOptions,
+  type DispatchResult,
+  dispatchWorkflows,
+  parseWorkflowList,
+  safeName,
+} from "./dispatch_workflows.ts";
