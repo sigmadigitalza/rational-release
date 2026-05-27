@@ -107,28 +107,21 @@ jobs:
       - name: Resolve previous release tag
         id: prev
         shell: bash
+        env:
+          CLI: ${{ inputs.cli }}
         run: |
-          set -euo pipefail
-          prev=$(git tag --list 'v*' --sort=-v:refname | head -n 1 || true)
-          echo "tag=$prev" >> "$GITHUB_OUTPUT"
-          if [ -n "$prev" ]; then
-            echo "Previous release: $prev"
-          else
-            echo "No previous release tag — this will be the first."
-          fi
+          deno run --allow-env --allow-run=git \
+            --allow-write="$GITHUB_OUTPUT" \
+            "$CLI" prev-tag
 
       - name: Collect commit subjects since previous tag
         shell: bash
         env:
+          CLI: ${{ inputs.cli }}
           PREV_TAG: ${{ steps.prev.outputs.tag }}
         run: |
-          set -euo pipefail
-          if [ -n "$PREV_TAG" ]; then
-            git log "${PREV_TAG}..HEAD" --format=%s > commits.txt
-          else
-            git log --format=%s > commits.txt
-          fi
-          echo "Found $(wc -l < commits.txt | tr -d ' ') commit subject(s)."
+          deno run --allow-env --allow-run=git --allow-write=commits.txt \
+            "$CLI" collect-commits --prev-tag "$PREV_TAG" --out commits.txt
 
       - name: Compute next version
         id: bump
@@ -240,24 +233,11 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CLI: ${{ inputs.cli }}
           PREV_TAG: ${{ steps.prev.outputs.tag }}
         run: |
-          set -euo pipefail
-          if [ -n "$PREV_TAG" ]; then
-            since=$(git log -1 --format=%ct "$PREV_TAG")
-          else
-            since=0
-          fi
-          # Retry gh API call up to 3 times to handle transient failures.
-          for attempt in 1 2 3; do
-            if gh pr list --base "${GITHUB_REF_NAME:-main}" --state merged --limit 200 \
-              --json number,title,mergedAt,author \
-              --jq "[ .[] | select((.mergedAt | fromdateiso8601) > $since) ]" \
-              > prs.json; then break; fi
-            if [ "$attempt" -eq 3 ]; then echo "::error::gh pr list failed after 3 attempts"; exit 1; fi
-            echo "::warning::gh pr list attempt $attempt failed, retrying in 5s…"
-            sleep 5
-          done
+          deno run --allow-env --allow-run=gh,git --allow-write=prs.json \
+            "$CLI" collect-merged-prs --prev-tag "$PREV_TAG" --out prs.json
 
       - name: Regenerate [Unreleased] section
         if: steps.gate.outputs.proceed == 'true'
@@ -285,46 +265,36 @@ jobs:
         if: steps.gate.outputs.proceed == 'true'
         shell: bash
         env:
+          CLI: ${{ inputs.cli }}
           MANIFEST: ${{ inputs.manifest-path }}
           CHANGELOG: ${{ inputs.changelog-path }}
           MIRRORS: ${{ inputs.mirror-paths }}
           EXTRAS: ${{ inputs.commit-paths }}
           BUMPED: ${{ steps.bump.outputs.bumped }}
+          NEXT: ${{ steps.bump.outputs.next }}
         run: |
-          set -euo pipefail
-          [ "$BUMPED" = "true" ] && git add "$MANIFEST"
-          git add "$CHANGELOG"
-          while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            dst="${line#*:}"
-            [ -e "$dst" ] && git add "$dst"
-          done <<< "$MIRRORS"
-          while IFS= read -r p; do
-            [ -z "$p" ] && continue
-            [ -e "$p" ] && git add "$p"
-          done <<< "$EXTRAS"
-          if git diff --cached --quiet; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            git commit -m "chore(release): prep v${{ steps.bump.outputs.next }}"
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
+          flags=()
+          [ "$BUMPED" = "true" ] && flags+=( --bumped )
+          deno run --allow-env --allow-read --allow-run=git \
+            --allow-write="$GITHUB_OUTPUT" \
+            "$CLI" stage-prep \
+              --manifest "$MANIFEST" \
+              --changelog "$CHANGELOG" \
+              --version "$NEXT" \
+              --mirrors "$MIRRORS" \
+              --extras "$EXTRAS" \
+              "${flags[@]}"
 
       - name: Force-push release branch
         if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true'
         shell: bash
         env:
+          CLI: ${{ inputs.cli }}
           PREFIX: ${{ inputs.release-branch-prefix }}
           NEXT: ${{ steps.bump.outputs.next }}
         run: |
-          set -euo pipefail
-          # Retry push up to 3 times to handle transient network failures.
-          for attempt in 1 2 3; do
-            if git push --force origin "HEAD:refs/heads/${PREFIX}${NEXT}"; then break; fi
-            if [ "$attempt" -eq 3 ]; then echo "::error::git push failed after 3 attempts"; exit 1; fi
-            echo "::warning::git push attempt $attempt failed, retrying in 5s…"
-            sleep 5
-          done
+          deno run --allow-env --allow-run=git \
+            "$CLI" force-push --refspec "HEAD:refs/heads/${PREFIX}${NEXT}"
 
       - name: Extract [Unreleased] for PR body
         if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true'
@@ -343,33 +313,19 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CLI: ${{ inputs.cli }}
           PREFIX: ${{ inputs.release-branch-prefix }}
           NEXT: ${{ steps.bump.outputs.next }}
           PREV_VERSION: ${{ steps.bump.outputs.current }}
         run: |
-          set -euo pipefail
-          branch="${PREFIX}${NEXT}"
-          title="Release v${NEXT}"
-          {
-            echo "## Release v${NEXT}"
-            echo
-            echo "Auto-bumped from \`${PREV_VERSION}\` based on conventional commits since the previous release."
-            echo
-            echo "Merging this PR will tag \`v${NEXT}\` and publish a GitHub Release."
-            echo
-            echo "### Changelog preview"
-            echo
-            cat unreleased.md
-          } > body.md
-
-          existing=$(gh pr list --head "$branch" --base "${GITHUB_REF_NAME:-main}" --state open --json number --jq '.[0].number' || true)
-          if [ -n "$existing" ]; then
-            gh pr edit "$existing" --title "$title" --body-file body.md
-            echo "### 🔄 Updated release PR #${existing}" >> "$GITHUB_STEP_SUMMARY"
-          else
-            gh pr create --base "${GITHUB_REF_NAME:-main}" --head "$branch" --title "$title" --body-file body.md
-            echo "### 🆕 Opened release PR for v${NEXT}" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          deno run --allow-env --allow-read=unreleased.md --allow-run=gh \
+            --allow-write="body.md,$GITHUB_STEP_SUMMARY" \
+            "$CLI" open-or-update-pr \
+              --head "${PREFIX}${NEXT}" \
+              --version "$NEXT" \
+              --prev-version "$PREV_VERSION" \
+              --unreleased-from unreleased.md \
+              --body-file body.md
 
       - name: Supersede stale release PRs
         # Close any parallel release/v* PRs left over when a bump-tier

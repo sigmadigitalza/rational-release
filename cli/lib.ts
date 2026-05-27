@@ -209,3 +209,57 @@ export {
   parseWorkflowList,
   safeName,
 } from "./dispatch_workflows.ts";
+
+// git subprocess wrapper — parallel to ./gh.ts, for the release-tooling
+// modules below that wrap git invocations.
+export { defaultGitRunner, type GitResult, type GitRunner } from "./git.ts";
+
+// Previous-release-tag lookup
+export {
+  pickStrictSemverTags,
+  prevTag,
+  type PrevTagOptions,
+  type PrevTagResult,
+} from "./prev_tag.ts";
+
+// Commit-subjects collection (since prev tag)
+export {
+  collectCommits,
+  type CollectCommitsOptions,
+  type CollectCommitsResult,
+} from "./collect_commits.ts";
+
+// Merged-PRs collection (for changelog generation)
+export {
+  collectMergedPrs,
+  type CollectMergedPrsOptions,
+  type CollectMergedPrsResult,
+  filterSince,
+  type MergedPrRow,
+  resolveSinceEpoch,
+} from "./collect_merged_prs.ts";
+
+// Prep-commit staging
+export {
+  mirrorDestinations,
+  parseExtraPaths,
+  stagePrep,
+  type StagePrepOptions,
+  type StagePrepResult,
+} from "./stage_prep.ts";
+
+// Force-push with retry
+export {
+  forcePush,
+  type ForcePushOptions,
+  type ForcePushResult,
+} from "./force_push.ts";
+
+// Open-or-update release PR (idempotent)
+export {
+  findOpenPrByHead,
+  type OpenOrUpdateOptions,
+  openOrUpdateReleasePr,
+  type OpenOrUpdateResult,
+  renderBody,
+} from "./open_or_update_pr.ts";

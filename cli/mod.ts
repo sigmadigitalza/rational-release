@@ -68,6 +68,12 @@ import {
 import { detectReleaseMerge } from "./detect_release_merge.ts";
 import { safeRef, supersedeStale } from "./supersede_stale.ts";
 import { dispatchWorkflows, safeName } from "./dispatch_workflows.ts";
+import { prevTag } from "./prev_tag.ts";
+import { collectCommits } from "./collect_commits.ts";
+import { collectMergedPrs, resolveSinceEpoch } from "./collect_merged_prs.ts";
+import { stagePrep } from "./stage_prep.ts";
+import { forcePush } from "./force_push.ts";
+import { openOrUpdateReleasePr } from "./open_or_update_pr.ts";
 
 const USAGE = `\
 rational-release <subcommand> [args...]
@@ -179,6 +185,41 @@ Subcommands:
       --from-env VAR (default WORKFLOWS), stdin. Failures become
       warnings, do not abort. Used by prepare-release's optional
       post-push-workflows input.
+
+  prev-tag
+      Print the most recent strict-semver \`vX.Y.Z\` tag (or empty if
+      none). Filters out floating-major tags (\`v1\`) and pre-release
+      suffixes. Writes \`tag=...\` to GITHUB_OUTPUT (when set) and the
+      tag to stdout.
+
+  collect-commits --prev-tag TAG --out FILE
+      Run \`git log [TAG..HEAD] --format=%s\` and write subjects to
+      FILE (one per line). Empty TAG walks full history (first release).
+
+  collect-merged-prs --since EPOCH --out FILE [--base BRANCH] [--limit N]
+      Fetch merged PRs against BASE (default \`main\`) via
+      \`gh pr list --json\`, filter to \`mergedAt > EPOCH\`, write the
+      array to FILE as JSON. Retries transient gh failures.
+
+  stage-prep --manifest PATH --changelog PATH --version X.Y.Z
+             [--bumped] [--mirrors STR] [--extras STR]
+      Stage the prep-commit paths (manifest if --bumped, changelog
+      always, mirror destinations if they exist, extras if they
+      exist), then \`git commit -m "chore(release): prep vX.Y.Z"\`.
+      Writes \`changed=true|false\` to GITHUB_OUTPUT depending on
+      whether the staged diff was non-empty.
+
+  force-push --refspec SPEC [--remote NAME] [--retries N]
+      \`git push --force <remote> <refspec>\` with retry on transient
+      failure. Throws if all attempts fail.
+
+  open-or-update-pr --head BRANCH --version X.Y.Z --prev-version X.Y.Z
+                    --unreleased-from FILE [--base BRANCH] [--body-file FILE]
+      Look up an open PR with --head against --base; edit it
+      (title + body) if found, else create a new one. Body is built
+      from the prev → next header plus the contents of
+      --unreleased-from. Writes the body to --body-file before
+      invoking \`gh\`.
 `;
 
 async function readStdin(): Promise<string> {
@@ -758,6 +799,24 @@ async function main(): Promise<void> {
     case "dispatch-workflows":
       await cmdDispatchWorkflows(rest);
       return;
+    case "prev-tag":
+      await cmdPrevTag(rest);
+      return;
+    case "collect-commits":
+      await cmdCollectCommits(rest);
+      return;
+    case "collect-merged-prs":
+      await cmdCollectMergedPrs(rest);
+      return;
+    case "stage-prep":
+      await cmdStagePrep(rest);
+      return;
+    case "force-push":
+      await cmdForcePush(rest);
+      return;
+    case "open-or-update-pr":
+      await cmdOpenOrUpdatePr(rest);
+      return;
     case "--help":
     case "-h":
     case undefined:
@@ -840,6 +899,141 @@ async function cmdSupersedeStale(args: string[]): Promise<void> {
   for (const pr of result.failed) {
     console.warn(
       `::warning::failed to close stale PR #${pr.number} (head=${pr.headRefName}); leaving for manual cleanup`,
+    );
+  }
+}
+
+async function cmdPrevTag(_args: string[]): Promise<void> {
+  const result = await prevTag();
+  const tag = result.tag ?? "";
+  if (process.env.GITHUB_OUTPUT) {
+    await appendFile(process.env.GITHUB_OUTPUT, `tag=${tag}\n`);
+  }
+  if (tag) {
+    process.stdout.write(`${tag}\n`);
+    console.error(`Previous release: ${tag}`);
+  } else {
+    console.error("No previous release tag — this will be the first.");
+  }
+}
+
+async function cmdCollectCommits(args: string[]): Promise<void> {
+  const prev = takeOption(args, "--prev-tag") ?? "";
+  const outFile = takeOption(args, "--out");
+  if (!outFile) {
+    console.error("collect-commits: --out FILE required");
+    process.exit(2);
+  }
+  const res = await collectCommits({ prevTag: prev, outFile });
+  console.error(`Found ${res.count} commit subject(s).`);
+}
+
+async function cmdCollectMergedPrs(args: string[]): Promise<void> {
+  const prevTag = takeOption(args, "--prev-tag") ?? "";
+  const sinceRaw = takeOption(args, "--since");
+  const outFile = takeOption(args, "--out");
+  const base = takeOption(args, "--base") ?? process.env.GITHUB_REF_NAME ??
+    "main";
+  const limit = Number(takeOption(args, "--limit") ?? "200");
+  if (!outFile) {
+    console.error("collect-merged-prs: --out FILE required");
+    process.exit(2);
+  }
+  let since: number;
+  if (sinceRaw != null) {
+    since = Number(sinceRaw);
+    if (!Number.isFinite(since)) {
+      console.error(
+        `collect-merged-prs: --since must be a number, got ${sinceRaw}`,
+      );
+      process.exit(2);
+    }
+  } else {
+    since = await resolveSinceEpoch(prevTag || null);
+  }
+  const res = await collectMergedPrs({
+    sinceEpoch: since,
+    outFile,
+    base,
+    limit,
+  });
+  for (const w of res.warnings) console.warn(`::warning::${w}`);
+  console.error(`Collected ${res.count} merged PR(s).`);
+}
+
+async function cmdStagePrep(args: string[]): Promise<void> {
+  const manifest = takeOption(args, "--manifest");
+  const changelog = takeOption(args, "--changelog");
+  const version = takeOption(args, "--version");
+  const bumped = takeFlag(args, "--bumped");
+  const mirrors = takeOption(args, "--mirrors") ?? "";
+  const extras = takeOption(args, "--extras") ?? "";
+  if (!manifest || !changelog || !version) {
+    console.error(
+      "stage-prep: --manifest, --changelog, and --version required",
+    );
+    process.exit(2);
+  }
+  const res = await stagePrep({
+    manifest,
+    bumped,
+    changelog,
+    mirrors,
+    extras,
+    version,
+  });
+  if (process.env.GITHUB_OUTPUT) {
+    await appendFile(
+      process.env.GITHUB_OUTPUT,
+      `changed=${res.changed}\n`,
+    );
+  }
+  console.error(`Staged ${res.staged.length} path(s); changed=${res.changed}`);
+}
+
+async function cmdForcePush(args: string[]): Promise<void> {
+  const refspec = takeOption(args, "--refspec");
+  const remote = takeOption(args, "--remote") ?? "origin";
+  const retriesRaw = takeOption(args, "--retries");
+  const retries = retriesRaw ? Number(retriesRaw) : undefined;
+  if (!refspec) {
+    console.error("force-push: --refspec required");
+    process.exit(2);
+  }
+  const res = await forcePush({ refspec, remote, retries });
+  for (const w of res.warnings) console.warn(`::warning::${w}`);
+}
+
+async function cmdOpenOrUpdatePr(args: string[]): Promise<void> {
+  const head = takeOption(args, "--head");
+  const version = takeOption(args, "--version");
+  const prevVersion = takeOption(args, "--prev-version") ?? "";
+  const unreleasedFrom = takeOption(args, "--unreleased-from");
+  const base = takeOption(args, "--base") ?? process.env.GITHUB_REF_NAME ??
+    "main";
+  const bodyFile = takeOption(args, "--body-file") ?? "body.md";
+  if (!head || !version || !unreleasedFrom) {
+    console.error(
+      "open-or-update-pr: --head, --version, --unreleased-from required",
+    );
+    process.exit(2);
+  }
+  const unreleased = await readFile(unreleasedFrom, "utf-8");
+  const res = await openOrUpdateReleasePr({
+    head,
+    version,
+    prevVersion,
+    unreleased,
+    base,
+    bodyFile,
+  });
+  if (res.action === "updated") {
+    await appendStepSummary(
+      `### 🔄 Updated release PR #${res.number}\n`,
+    );
+  } else {
+    await appendStepSummary(
+      `### 🆕 Opened release PR for v${version}\n`,
     );
   }
 }
