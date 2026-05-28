@@ -74,6 +74,7 @@ import { collectMergedPrs, resolveSinceEpoch } from "./collect_merged_prs.ts";
 import { stagePrep } from "./stage_prep.ts";
 import { forcePush } from "./force_push.ts";
 import { openOrUpdateReleasePr } from "./open_or_update_pr.ts";
+import { computeNextVersion } from "./compute_next_version.ts";
 
 const USAGE = `\
 rational-release <subcommand> [args...]
@@ -104,8 +105,10 @@ Subcommands:
       Promote [Unreleased] to [version] - date and prepend a fresh empty
       [Unreleased] block. Date defaults to today (UTC).
 
-  extract-section <changelog.md> <version>
-      Print the body of [version] to stdout. Empty if missing.
+  extract-section <changelog.md> <version> [--fallback STR]
+      Print the body of [version] to stdout. Empty if missing — or
+      the --fallback string if provided (a trailing newline is added
+      if absent).
 
   validate-title [<title>] [--from-env VAR] [--require-scope]
       Validate a single PR title against Conventional Commits. Reads from
@@ -224,6 +227,15 @@ Subcommands:
       from the prev → next header plus the contents of
       --unreleased-from. Writes the body to --body-file before
       invoking \`gh\`.
+
+  compute-next-version <manifest> --commits-file FILE
+                       [--jsonpath $.version] [--pre-1.0-cap]
+                       [--patch-types LIST] [--minor-types LIST]
+      Read the current version from the manifest + commit subjects
+      from FILE, write \`current=...\`, \`next=...\`, \`bumped=true|false\`
+      to GITHUB_OUTPUT (when set), and write a step-summary line
+      when bumped. Equivalent to running \`read-version\` then
+      \`next-version\` and wiring their outputs by hand.
 `;
 
 async function readStdin(): Promise<string> {
@@ -356,14 +368,21 @@ async function cmdChangelogFinalise(args: string[]): Promise<void> {
 }
 
 async function cmdExtractSection(args: string[]): Promise<void> {
+  const fallback = takeOption(args, "--fallback");
   const [changelogPath, version] = args;
   if (!changelogPath || !version) {
-    console.error("usage: extract-section <changelog.md> <version>");
+    console.error(
+      "usage: extract-section <changelog.md> <version> [--fallback STR]",
+    );
     process.exit(2);
   }
   const changelog = await readFile(changelogPath, "utf-8");
   const body = extractSection(changelog, version);
-  process.stdout.write(body);
+  if (body.trim() === "" && fallback != null) {
+    process.stdout.write(fallback.endsWith("\n") ? fallback : `${fallback}\n`);
+  } else {
+    process.stdout.write(body);
+  }
 }
 
 async function appendStepSummary(text: string): Promise<void> {
@@ -821,6 +840,9 @@ async function main(): Promise<void> {
     case "open-or-update-pr":
       await cmdOpenOrUpdatePr(rest);
       return;
+    case "compute-next-version":
+      await cmdComputeNextVersion(rest);
+      return;
     case "--help":
     case "-h":
     case undefined:
@@ -1006,6 +1028,41 @@ async function cmdForcePush(args: string[]): Promise<void> {
   }
   const res = await forcePush({ refspec, remote, retries });
   for (const w of res.warnings) console.warn(`::warning::${w}`);
+}
+
+async function cmdComputeNextVersion(args: string[]): Promise<void> {
+  const commitsFile = takeOption(args, "--commits-file");
+  const jsonPath = takeOption(args, "--jsonpath") ?? "$.version";
+  const pre1Cap = takeFlag(args, "--pre-1.0-cap");
+  const patchTypes = parseTypeList(takeOption(args, "--patch-types"));
+  const minorTypes = parseTypeList(takeOption(args, "--minor-types"));
+  const [manifestPath] = args;
+  if (!manifestPath || !commitsFile) {
+    console.error(
+      "compute-next-version: <manifest> + --commits-file FILE required",
+    );
+    process.exit(2);
+  }
+  const res = await computeNextVersion({
+    manifestPath,
+    commitsFile,
+    jsonPath,
+    pre1Cap,
+    patchTypes,
+    minorTypes,
+  });
+  const output =
+    `current=${res.current}\nnext=${res.next}\nbumped=${res.bumped}\n`;
+  if (process.env.GITHUB_OUTPUT) {
+    await appendFile(process.env.GITHUB_OUTPUT, output);
+  } else {
+    process.stdout.write(output);
+  }
+  if (res.bumped) {
+    await appendStepSummary(
+      `### 📦 Version bump: \`${res.current}\` → \`${res.next}\`\n`,
+    );
+  }
 }
 
 async function cmdOpenOrUpdatePr(args: string[]): Promise<void> {
