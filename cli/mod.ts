@@ -75,6 +75,7 @@ import { stagePrep } from "./stage_prep.ts";
 import { forcePush } from "./force_push.ts";
 import { openOrUpdateReleasePr } from "./open_or_update_pr.ts";
 import { computeNextVersion } from "./compute_next_version.ts";
+import { readCliVersion } from "./cli_version.ts";
 
 const USAGE = `\
 rational-release <subcommand> [args...]
@@ -236,6 +237,11 @@ Subcommands:
       to GITHUB_OUTPUT (when set), and write a step-summary line
       when bumped. Equivalent to running \`read-version\` then
       \`next-version\` and wiring their outputs by hand.
+
+  version
+      Print the rational-release CLI's own version (read from the
+      package's deno.json) to stdout. Useful for introspecting which
+      release a workflow is pinned to.
 `;
 
 async function readStdin(): Promise<string> {
@@ -843,6 +849,9 @@ async function main(): Promise<void> {
     case "compute-next-version":
       await cmdComputeNextVersion(rest);
       return;
+    case "version":
+      await cmdVersion(rest);
+      return;
     case "--help":
     case "-h":
     case undefined:
@@ -1063,6 +1072,11 @@ async function cmdComputeNextVersion(args: string[]): Promise<void> {
       `### 📦 Version bump: \`${res.current}\` → \`${res.next}\`\n`,
     );
   }
+}
+
+async function cmdVersion(_args: string[]): Promise<void> {
+  const version = await readCliVersion();
+  console.log(version);
 }
 
 async function cmdOpenOrUpdatePr(args: string[]): Promise<void> {
