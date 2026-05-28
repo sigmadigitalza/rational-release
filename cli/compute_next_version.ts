@@ -44,9 +44,11 @@ export async function computeNextVersion(
     opts.manifestPath,
     opts.jsonPath ?? "$.version",
   );
-  if (!current) {
+  if (current === "") {
     throw new Error(
-      `read-version returned empty string from ${opts.manifestPath}`,
+      `Manifest version at ${opts.manifestPath} (${
+        opts.jsonPath ?? "$.version"
+      }) is empty`,
     );
   }
   const text = await readFile(opts.commitsFile, "utf-8");

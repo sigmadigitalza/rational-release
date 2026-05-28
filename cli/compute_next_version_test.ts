@@ -118,7 +118,7 @@ Deno.test("computeNextVersion: throws when manifest version is empty", () =>
           manifestPath: manifest,
           commitsFile: commits,
         }),
-      /read-version returned empty string/,
+      /Manifest version at .* is empty/,
     );
   }));
 

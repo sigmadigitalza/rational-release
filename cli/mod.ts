@@ -1031,16 +1031,12 @@ async function cmdForcePush(args: string[]): Promise<void> {
 }
 
 async function cmdComputeNextVersion(args: string[]): Promise<void> {
-  const manifestPath = args[0];
   const commitsFile = takeOption(args, "--commits-file");
   const jsonPath = takeOption(args, "--jsonpath") ?? "$.version";
   const pre1Cap = takeFlag(args, "--pre-1.0-cap");
-  const patchTypes = takeOption(args, "--patch-types")?.split(",").map((s) =>
-    s.trim()
-  ).filter(Boolean);
-  const minorTypes = takeOption(args, "--minor-types")?.split(",").map((s) =>
-    s.trim()
-  ).filter(Boolean);
+  const patchTypes = parseTypeList(takeOption(args, "--patch-types"));
+  const minorTypes = parseTypeList(takeOption(args, "--minor-types"));
+  const [manifestPath] = args;
   if (!manifestPath || !commitsFile) {
     console.error(
       "compute-next-version: <manifest> + --commits-file FILE required",
