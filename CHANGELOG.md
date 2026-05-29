@@ -9,11 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- add `version` subcommand (#49 by @Pushplaybang)
+
 ### Changed
 
-### Fixed
-
-### Removed
+- extract release-merge / supersede / dispatch bash into CLI (#46 by @Pushplaybang)
+- extract remaining workflow bash into CLI subcommands (#47 by @Pushplaybang)
+- comment cleanup + collapse compute-next-version + extract --fallback (#48 by @Pushplaybang)
 
 ## [1.7.0] - 2026-05-26
 
