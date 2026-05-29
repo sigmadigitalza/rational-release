@@ -270,3 +270,6 @@ export {
   type ComputeNextResult,
   computeNextVersion,
 } from "./compute_next_version.ts";
+
+// CLI self-version introspection
+export { DEFAULT_DENO_JSON_PATH, readCliVersion } from "./cli_version.ts";
