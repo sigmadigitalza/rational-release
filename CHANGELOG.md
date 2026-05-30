@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+### Changed
+
+### Fixed
+
+### Removed
+
+## [1.8.1] - 2026-05-30
+
 ### Fixed
 
 - don't crash on import when the CLI is loaded via jsr (#51 by @Pushplaybang)
