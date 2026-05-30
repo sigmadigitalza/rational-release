@@ -2,7 +2,11 @@ import { deepStrictEqual as eq, rejects } from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_DENO_JSON_PATH, readCliVersion } from "./cli_version.ts";
+import {
+  DEFAULT_DENO_JSON_PATH,
+  readCliVersion,
+  resolveDenoJsonPath,
+} from "./cli_version.ts";
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), "rr-cli-version-"));
@@ -29,6 +33,26 @@ Deno.test("readCliVersion: default path points at the package's own deno.json", 
   if (!/^\d+\.\d+\.\d+$/.test(version)) {
     throw new Error(`expected X.Y.Z, got ${JSON.stringify(version)}`);
   }
+});
+
+Deno.test("resolveDenoJsonPath: file: URL resolves to a local filesystem path", () => {
+  const path = resolveDenoJsonPath("file:///home/x/cli/cli_version.ts");
+  // One directory up, converted off the URL scheme into a real path.
+  eq(path.endsWith("deno.json"), true);
+  eq(path.startsWith("file:"), false);
+  eq(path.startsWith("http"), false);
+});
+
+Deno.test("resolveDenoJsonPath: https (jsr) URL keeps the href instead of throwing", () => {
+  // Regression: fileURLToPath() throws "The URL must be of scheme file"
+  // on an https module URL. Loaded via jsr: the CLI must still import,
+  // so non-file: URLs resolve to the sibling deno.json href.
+  const url =
+    "https://jsr.io/@sigmadigitalza/rational-release/1.8.0/cli/cli_version.ts";
+  eq(
+    resolveDenoJsonPath(url),
+    "https://jsr.io/@sigmadigitalza/rational-release/1.8.0/deno.json",
+  );
 });
 
 Deno.test("readCliVersion: throws when file is missing", () =>
