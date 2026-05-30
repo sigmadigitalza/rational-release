@@ -14,16 +14,34 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+/**
+ * Resolve the location of the CLI's own `deno.json` (one directory up
+ * from `moduleUrl`).
+ *
+ * Converts to a filesystem path only when `moduleUrl` is a `file:` URL
+ * (a local checkout). When the CLI is loaded over http(s) — e.g. via
+ * `jsr:`, the default way consumers run it — `import.meta.url` is an
+ * `https:` URL and `fileURLToPath` throws "The URL must be of scheme
+ * file". Because this resolution previously ran at module top-level,
+ * that threw on import and crashed *every* subcommand. Keeping the href
+ * for non-`file:` URLs lets the module load; only the `version`
+ * subcommand reads this path, so it degrades to a clear runtime error
+ * there instead of taking the whole CLI down.
+ *
+ * Exported so both schemes can be unit-tested directly.
+ */
+export function resolveDenoJsonPath(moduleUrl: string): string {
+  const denoJsonUrl = new URL("../deno.json", moduleUrl);
+  return denoJsonUrl.protocol === "file:"
+    ? fileURLToPath(denoJsonUrl)
+    : denoJsonUrl.href;
+}
 
 /** Default location of the CLI's own `deno.json` (one directory up). */
-export const DEFAULT_DENO_JSON_PATH: string = join(
-  MODULE_DIR,
-  "..",
-  "deno.json",
+export const DEFAULT_DENO_JSON_PATH: string = resolveDenoJsonPath(
+  import.meta.url,
 );
 
 /**
