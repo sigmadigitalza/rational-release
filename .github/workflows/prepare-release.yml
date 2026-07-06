@@ -2,9 +2,17 @@
 #
 # Called on push-to-main from the consumer repo. Computes the next
 # semver from conventional-commit subjects since the previous tag,
-# regenerates the [Unreleased] section of CHANGELOG.md, mirrors the
-# changelog into any extra paths, and force-pushes a release/vX.Y.Z
-# branch with a "Release vX.Y.Z" PR open against main.
+# regenerates the [Unreleased] section of CHANGELOG.md, finalises it
+# into the `[X.Y.Z] - date` release section (leaving a fresh empty
+# [Unreleased] above it), mirrors the changelog into any extra paths,
+# and force-pushes a release/vX.Y.Z branch with a "Release vX.Y.Z" PR
+# open against main.
+#
+# Finalising here — rather than at cut time — means the merged release
+# PR already carries the finalised changelog, so cut-release has nothing
+# to commit and never needs push access to a protected main branch
+# (GH006 "Protected branch update failed" made cut-release die after the
+# release PR merged, stranding the manifest ahead of the tags).
 #
 # See docs/examples/prepare-release.yml for a wrapper.
 
@@ -226,6 +234,20 @@ jobs:
           [ "$BOOTSTRAP" = "true" ] && flags+=( --bootstrap )
           deno run --allow-read --allow-write "$CLI" changelog-generate prs.json "$CHANGELOG" "${flags[@]}"
 
+      - name: Finalise changelog into the release section
+        # Promote [Unreleased] to `[X.Y.Z] - date` on the release branch
+        # itself (a fresh empty [Unreleased] is left above it). The merge
+        # of the release PR then delivers the finalised changelog to main,
+        # so cut-release never has to push a finalisation commit — which a
+        # protected main would reject (GH006).
+        if: steps.gate.outputs.proceed == 'true'
+        shell: bash
+        env:
+          CLI: ${{ inputs.cli }}
+          CHANGELOG: ${{ inputs.changelog-path }}
+          NEXT: ${{ steps.bump.outputs.next }}
+        run: deno run --allow-read --allow-write "$CLI" changelog-finalise "$CHANGELOG" "$NEXT"
+
       - name: Mirror changelog
         if: steps.gate.outputs.proceed == 'true' && inputs.mirror-paths != ''
         shell: bash
@@ -270,16 +292,19 @@ jobs:
           deno run --allow-env --allow-run=git \
             "$CLI" force-push --refspec "HEAD:refs/heads/${PREFIX}${NEXT}"
 
-      - name: Extract [Unreleased] for PR body
+      - name: Extract release section for PR body
+        # The changelog is already finalised on this branch, so the release
+        # notes live under `[X.Y.Z]`, not `[Unreleased]`.
         if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true'
         shell: bash
         env:
           CHANGELOG: ${{ inputs.changelog-path }}
           CLI: ${{ inputs.cli }}
+          NEXT: ${{ steps.bump.outputs.next }}
         run: |
           deno run --allow-read "$CLI" \
-            extract-section "$CHANGELOG" Unreleased \
-            --fallback "_No entries in [Unreleased]._" > unreleased.md
+            extract-section "$CHANGELOG" "$NEXT" \
+            --fallback "_No changelog entries._" > unreleased.md
 
       - name: Open or update release PR
         if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true'

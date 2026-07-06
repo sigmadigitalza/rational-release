@@ -103,8 +103,9 @@
     <h3>prepare-release.yml</h3>
     <p>
       Fires on every push to <code>main</code>. Computes the next semver, regenerates
-      <code>[Unreleased]</code>, applies the bump to the manifest, force-pushes a
-      <code>release/vX.Y.Z</code> branch, and opens (or updates) a <em>Release vX.Y.Z</em> PR.
+      <code>[Unreleased]</code> and finalises it into the <code>[X.Y.Z] - date</code> section,
+      applies the bump to the manifest, force-pushes a <code>release/vX.Y.Z</code> branch,
+      and opens (or updates) a <em>Release vX.Y.Z</em> PR.
     </p>
 
 <pre><code><span class="tok-k">name</span>: <span class="tok-s">Prepare Release</span>
@@ -124,8 +125,8 @@
 
     <h3>cut-release.yml</h3>
     <p>
-      Fires when a <code>release/v*</code> PR is merged. Tags <code>vX.Y.Z</code>, finalises the
-      changelog, and opens a GitHub Release.
+      Fires when a <code>release/v*</code> PR is merged. Tags <code>vX.Y.Z</code> and opens a
+      GitHub Release (the changelog was already finalised in the release PR).
     </p>
 
 <pre><code><span class="tok-k">name</span>: <span class="tok-s">Cut Release</span>
