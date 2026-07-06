@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+## [1.8.2] - 2026-07-06
+
+### Fixed
+
+- finalise the changelog at prepare time so cut-release never pushes to main (#53 by @Pushplaybang)
+
 ## [1.8.1] - 2026-05-30
 
 ### Fixed
