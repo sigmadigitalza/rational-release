@@ -27,13 +27,17 @@ Three reusable workflows, called via `workflow_call`:
 
 - **`prepare-release.yml`** — fires on every push to `main`. Computes the next
   semver from conventional-commit subjects since the previous tag, regenerates
-  the `[Unreleased]` section of `CHANGELOG.md` from merged PR titles, applies
-  the version bump to your manifest, force-pushes a `release/vX.Y.Z` branch,
-  and opens/updates a "Release vX.Y.Z" PR.
-- **`cut-release.yml`** — fires when a `release/v*` PR is merged. Finalises
-  the changelog (`[Unreleased]` → `[X.Y.Z] - date`), tags `vX.Y.Z`, runs your
-  `artefact-task`, and creates a GitHub Release with the changelog section as
-  the body and the artefacts attached.
+  the `[Unreleased]` section of `CHANGELOG.md` from merged PR titles, finalises
+  it into the `[X.Y.Z] - date` release section, applies the version bump to
+  your manifest, force-pushes a `release/vX.Y.Z` branch, and opens/updates a
+  "Release vX.Y.Z" PR. Because the changelog is finalised inside the release
+  PR, merging it is the only write to `main` — the flow works unchanged on
+  protected branches.
+- **`cut-release.yml`** — fires when a `release/v*` PR is merged. Tags
+  `vX.Y.Z`, runs your `artefact-task`, and creates a GitHub Release with the
+  changelog section as the body and the artefacts attached. (It can still
+  finalise the changelog itself as a fallback for release branches prepped by
+  an older `prepare-release` — that path needs push access to `main`.)
 - **`validate-pr.yml`** — fires on `pull_request`. Validates the PR title and
   every commit message in the PR against the conventional-commits spec.
   Report-only by default; opt-in to gating with `gate: true`.

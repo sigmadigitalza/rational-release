@@ -2,10 +2,16 @@
 #
 # Called on pull_request:closed from the consumer repo. Fires only when
 # the merged PR's head branch matches `^release/v` and the PR was
-# actually merged (not just closed). Finalises the changelog, tags the
-# version, runs the consumer's artefact-task, and creates a GitHub
-# Release with the changelog section as the body and any built
-# artefacts attached.
+# actually merged (not just closed). Tags the version, runs the
+# consumer's artefact-task, and creates a GitHub Release with the
+# changelog section as the body and any built artefacts attached.
+#
+# The changelog is normally finalised by prepare-release on the release
+# branch itself, so the steps below find nothing to commit and this
+# workflow needs no push access to main. The finalise/commit/push path
+# is kept as a fallback for release branches prepped by an older
+# prepare-release (it is what used to fail with GH006 on protected
+# main branches).
 
 name: rational-release / cut
 
@@ -138,7 +144,29 @@ jobs:
           prev=$(git tag --list 'v*' --sort=-v:refname | head -n 1 || true)
           echo "tag=$prev" >> "$GITHUB_OUTPUT"
 
+      - name: Check whether the changelog is already finalised
+        # prepare-release finalises on the release branch, so the merged
+        # changelog normally already has the `[X.Y.Z]` section and there
+        # is nothing left to do on main. changelog-finalise would throw
+        # on a changelog without `[Unreleased]`, so it must be skipped.
+        id: fin
+        shell: bash
+        env:
+          CLI: ${{ inputs.cli }}
+          CHANGELOG: ${{ inputs.changelog-path }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          section=$(deno run --allow-read "$CLI" extract-section "$CHANGELOG" "$VERSION")
+          if [ -n "$section" ]; then
+            echo "done=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Changelog already finalised for v${VERSION} (by prepare-release) — no push to main needed."
+          else
+            echo "done=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Finalise changelog
+        if: steps.fin.outputs.done != 'true'
         shell: bash
         env:
           CLI: ${{ inputs.cli }}
