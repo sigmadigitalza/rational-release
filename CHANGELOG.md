@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+## [1.8.3] - 2026-07-06
+
+### Fixed
+
+- skip machine-generated release PRs (#55 by @Pushplaybang)
+
 ## [1.8.2] - 2026-07-06
 
 ### Fixed
