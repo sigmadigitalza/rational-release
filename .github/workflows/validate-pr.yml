@@ -8,6 +8,12 @@
 # but doesn't fail the workflow. Set `gate: true` to turn the checks
 # into required statuses that block merge when wired up in branch
 # protection.
+#
+# Machine-generated release PRs (prepare-release's "Release vX.Y.Z")
+# are skipped — their title is by design not a conventional commit.
+# Normally their bot-pushed branches never trigger pull_request
+# workflows at all (anti-loop suppression), but a manually-approved
+# held run would otherwise fail the release PR on its own title.
 
 name: rational-release / validate-pr
 
@@ -17,6 +23,10 @@ on:
       require-scope:
         type: boolean
         default: false
+      release-branch-prefix:
+        description: "Head-branch prefix of machine-generated release PRs to skip. Match prepare-release's release-branch-prefix."
+        type: string
+        default: release/v
       gate:
         description: "Fail the workflow on validation error (vs. report-only)."
         type: boolean
@@ -38,6 +48,9 @@ permissions:
 
 jobs:
   validate:
+    # Skip prepare-release's own PRs — "Release vX.Y.Z" is not (and
+    # should not be) a conventional-commit title.
+    if: ${{ !startsWith(github.head_ref, inputs.release-branch-prefix) }}
     runs-on: ${{ inputs.runs-on }}
     timeout-minutes: 5
     steps:

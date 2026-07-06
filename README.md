@@ -156,6 +156,7 @@ tag matches the manifest before publishing. This avoids the CodeQL
 |---|---|---|
 | `require-scope` | `false` | Require `type(scope): …`. |
 | `gate` | `false` | Fail the workflow on validation error (vs report-only). |
+| `release-branch-prefix` | `release/v` | Head-branch prefix of machine-generated release PRs to skip (their "Release vX.Y.Z" title is by design not conventional). |
 | `validate-commits` | `true` | Also validate every commit message in the PR. |
 | `cli` | `jsr:@sigmadigitalza/rational-release@^1` | CLI source. JSR specifier (default) or local path (`./cli/mod.ts`) for dogfooding. |
 | `runs-on` | `ubuntu-latest` | Runner label. |
