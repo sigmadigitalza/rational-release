@@ -6,12 +6,15 @@
 # consumer's artefact-task, and creates a GitHub Release with the
 # changelog section as the body and any built artefacts attached.
 #
-# The changelog is normally finalised by prepare-release on the release
-# branch itself, so the steps below find nothing to commit and this
-# workflow needs no push access to main. The finalise/commit/push path
-# is kept as a fallback for release branches prepped by an older
-# prepare-release (it is what used to fail with GH006 on protected
-# main branches).
+# This workflow is READ-ONLY on the default branch: it tags the merge
+# commit and publishes, but never commits or pushes to `main`. The
+# changelog is finalised earlier, by prepare-release, on the release
+# branch itself — so merging the release PR is the only write to `main`,
+# and a protected default branch is fully supported with no exception.
+# (Before 1.9, cut pushed the finalisation commit to `main`; on a
+# protected branch that push was rejected with GH006 *after* the merge
+# but *before* tagging, stranding the release — the failure mode this
+# design eliminates.)
 
 name: rational-release / cut
 
@@ -30,6 +33,10 @@ on:
       changelog-path:
         type: string
         default: CHANGELOG.md
+      # Deprecated / ignored since 1.9: cut no longer commits, so there is
+      # nothing to mirror or stage here. prepare-release handles both on
+      # the release branch. Kept only so existing callers that still pass
+      # them don't error; safe to remove from your `with:` block.
       mirror-paths:
         type: string
         default: ""
@@ -144,45 +151,19 @@ jobs:
           prev=$(git tag --list 'v*' --sort=-v:refname | head -n 1 || true)
           echo "tag=$prev" >> "$GITHUB_OUTPUT"
 
-      - name: Check whether the changelog is already finalised
-        # prepare-release finalises on the release branch, so the merged
-        # changelog normally already has the `[X.Y.Z]` section and there
-        # is nothing left to do on main. changelog-finalise would throw
-        # on a changelog without `[Unreleased]`, so it must be skipped.
-        id: fin
-        shell: bash
-        env:
-          CLI: ${{ inputs.cli }}
-          CHANGELOG: ${{ inputs.changelog-path }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          section=$(deno run --allow-read "$CLI" extract-section "$CHANGELOG" "$VERSION")
-          if [ -n "$section" ]; then
-            echo "done=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Changelog already finalised for v${VERSION} (by prepare-release) — no push to main needed."
-          else
-            echo "done=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Finalise changelog
-        if: steps.fin.outputs.done != 'true'
-        shell: bash
-        env:
-          CLI: ${{ inputs.cli }}
-          CHANGELOG: ${{ inputs.changelog-path }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: deno run --allow-read --allow-write "$CLI" changelog-finalise "$CHANGELOG" "$VERSION"
-
-      - name: Mirror changelog
-        if: inputs.mirror-paths != ''
-        shell: bash
-        env:
-          MIRROR_PATHS: ${{ inputs.mirror-paths }}
-          CLI: ${{ inputs.cli }}
-        run: deno run --allow-read --allow-write --allow-env "$CLI" mirror
-
-      - name: Extract release notes for this version
+      - name: Resolve release notes (read-only — cut never writes to main)
+        # prepare-release finalises the changelog on the release branch, so
+        # the merged tree already carries the `[X.Y.Z]` section and its
+        # mirrors. cut-release therefore only READS: it extracts notes for
+        # the GitHub Release and tags the merge commit as-is. It never
+        # commits or pushes to the default branch — so a protected `main`
+        # needs no exception, and a failed push can never strand a release
+        # (the GH006 wedge this design removes).
+        #
+        # A branch prepared by a pre-1.9 prepare-release still has the work
+        # under `[Unreleased]`; fall back to that so the notes are populated
+        # either way. That version's changelog self-heals on the next
+        # prepare run (which regenerates the section from PR history).
         id: notes
         shell: bash
         env:
@@ -192,41 +173,10 @@ jobs:
         run: |
           set -euo pipefail
           deno run --allow-read "$CLI" extract-section "$CHANGELOG" "$VERSION" > release-notes.md
-          [ -s release-notes.md ] || echo "_See changelog for details._" > release-notes.md
-
-      - name: Stage and commit finalisation
-        id: stage
-        shell: bash
-        env:
-          CHANGELOG: ${{ inputs.changelog-path }}
-          MIRRORS: ${{ inputs.mirror-paths }}
-          EXTRAS: ${{ inputs.commit-paths }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          git add "$CHANGELOG"
-          while IFS= read -r line; do
-            [ -z "$line" ] && continue
-            dst="${line#*:}"
-            [ -e "$dst" ] && git add "$dst"
-          done <<< "$MIRRORS"
-          while IFS= read -r p; do
-            [ -z "$p" ] && continue
-            [ -e "$p" ] && git add "$p"
-          done <<< "$EXTRAS"
-          if git diff --cached --quiet; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            git commit -m "chore(release): finalise v${VERSION}"
-            # Retry push up to 3 times to handle transient network failures.
-            for attempt in 1 2 3; do
-              if git push origin HEAD; then break; fi
-              if [ "$attempt" -eq 3 ]; then echo "::error::git push failed after 3 attempts"; exit 1; fi
-              echo "::warning::git push attempt $attempt failed, retrying in 5s…"
-              sleep 5
-            done
-            echo "changed=true" >> "$GITHUB_OUTPUT"
+          if [ ! -s release-notes.md ]; then
+            deno run --allow-read "$CLI" extract-section "$CHANGELOG" Unreleased > release-notes.md || true
           fi
+          [ -s release-notes.md ] || echo "_See changelog for details._" > release-notes.md
 
       - name: Tag release
         shell: bash

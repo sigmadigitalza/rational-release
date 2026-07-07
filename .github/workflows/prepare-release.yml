@@ -159,6 +159,33 @@ jobs:
             --allow-write="$GITHUB_OUTPUT,$GITHUB_STEP_SUMMARY" \
             "$CLI" detect-release-merge
 
+      - name: Detect stranded-release signals
+        # When the manifest sits ahead of the newest tag, release-gate needs
+        # to know whether that is an in-flight release (skip) or a stranded
+        # one — a prior cut-release that failed before tagging, which would
+        # otherwise wedge the pipeline in a permanent "release in flight"
+        # skip. Two signals disambiguate: does a tag for the manifest
+        # version exist, and is any release/v* PR open.
+        id: signals
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CURRENT: ${{ steps.bump.outputs.current }}
+          PREFIX: ${{ inputs.release-branch-prefix }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/v${CURRENT}" >/dev/null 2>&1; then
+            echo "tag-exists=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "tag-exists=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+          refs=$(gh pr list --state open --json headRefName --jq '.[].headRefName' 2>/dev/null || true)
+          if printf '%s\n' "$refs" | grep -q "^${PREFIX}"; then
+            echo "open-pr=true" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "open-pr=false" | tee -a "$GITHUB_OUTPUT"
+          fi
+
       - name: Bail out if nothing to release
         # Short-circuits the proceed/reason output when the rm_guard
         # step skipped; otherwise delegates to the release-gate CLI.
@@ -168,6 +195,8 @@ jobs:
           PREV_TAG: ${{ steps.prev.outputs.tag }}
           CURRENT: ${{ steps.bump.outputs.current }}
           BUMPED: ${{ steps.bump.outputs.bumped }}
+          TAG_EXISTS: ${{ steps.signals.outputs.tag-exists }}
+          OPEN_PR: ${{ steps.signals.outputs.open-pr }}
           GUARD_SKIP: ${{ steps.rm_guard.outputs.skip }}
           GUARD_HEAD_REF: ${{ steps.rm_guard.outputs.head-ref }}
           CLI: ${{ inputs.cli }}
@@ -175,6 +204,7 @@ jobs:
           set -euo pipefail
           if [ "$GUARD_SKIP" = "true" ]; then
             echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "recover=false" >> "$GITHUB_OUTPUT"
             echo "reason=release-merge commit (${GUARD_HEAD_REF})" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -182,7 +212,9 @@ jobs:
             "$CLI" release-gate \
               --prev-tag "$PREV_TAG" \
               --current "$CURRENT" \
-              --bumped "$BUMPED"
+              --bumped "$BUMPED" \
+              --current-tag-exists "$TAG_EXISTS" \
+              --open-release-pr "$OPEN_PR"
 
       - name: Run pre-tasks
         # Runs the caller-provided shell block. Exposes RR_NEXT_VERSION
@@ -305,6 +337,33 @@ jobs:
           deno run --allow-read "$CLI" \
             extract-section "$CHANGELOG" "$NEXT" \
             --fallback "_No changelog entries._" > unreleased.md
+
+      - name: Flag automated recovery in the release PR
+        # A recovering run re-releases work stranded by an earlier failed
+        # cut. Make that unmistakable on both the run summary and the PR
+        # body so a human knows the pipeline self-healed and why.
+        if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true' && steps.gate.outputs.recover == 'true'
+        shell: bash
+        env:
+          REASON: ${{ steps.gate.outputs.reason }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### ⚠️ Automated release recovery"
+            echo ""
+            echo "$REASON"
+          } >> "$GITHUB_STEP_SUMMARY"
+          tmp=$(mktemp)
+          {
+            echo "> ⚠️ **Automated release recovery**"
+            echo ">"
+            echo "> A previous release was stranded — its \`Cut Release\` run likely failed before tagging, leaving the manifest ahead of the newest tag with no matching tag. This PR re-releases the un-cut work; merging it will tag and publish normally."
+            echo ">"
+            echo "> _${REASON}_"
+            echo ""
+            cat unreleased.md
+          } > "$tmp"
+          mv "$tmp" unreleased.md
 
       - name: Open or update release PR
         if: steps.gate.outputs.proceed == 'true' && steps.stage.outputs.changed == 'true'

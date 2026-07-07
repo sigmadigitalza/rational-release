@@ -77,6 +77,67 @@ Deno.test("releaseGate: non-strict prevTag without bump → skip", () => {
   eq(v.reason.includes("no version-bumping commits"), true);
 });
 
+// ── Stranded-release self-heal (manifest ahead of the newest tag) ──────
+
+Deno.test("releaseGate: ahead with no signals → conservative in-flight skip", () => {
+  // Backwards-compat: omitting signals keeps the pre-1.9 behaviour.
+  const v = releaseGate("v1.2.3", "1.2.4", true);
+  eq(v.proceed, false);
+  eq(v.reason.includes("release in flight"), true);
+  eq(v.recover, undefined);
+});
+
+Deno.test("releaseGate: ahead + open release PR → skip (in flight)", () => {
+  const v = releaseGate("v1.2.3", "1.2.4", true, {
+    currentTagExists: false,
+    openReleasePr: true,
+  });
+  eq(v.proceed, false);
+  eq(v.reason.includes("release in flight"), true);
+  eq(v.reason.includes("release PR open"), true);
+});
+
+Deno.test("releaseGate: ahead + no tag + no open PR → recover (stranded)", () => {
+  const v = releaseGate("v1.2.3", "1.2.4", true, {
+    currentTagExists: false,
+    openReleasePr: false,
+  });
+  eq(v.proceed, true);
+  eq(v.recover, true);
+  eq(v.reason.includes("recovering stranded release"), true);
+});
+
+Deno.test("releaseGate: stranded recovery fires even without a fresh bump", () => {
+  // The un-cut work may be the only change since prevTag (bumped=false
+  // relative to the manifest). We must still re-release it.
+  const v = releaseGate("v1.2.3", "1.2.4", false, {
+    currentTagExists: false,
+    openReleasePr: false,
+  });
+  eq(v.proceed, true);
+  eq(v.recover, true);
+});
+
+Deno.test("releaseGate: ahead but v{current} already tagged → skip (released)", () => {
+  const v = releaseGate("v1.2.3", "1.2.4", true, {
+    currentTagExists: true,
+    openReleasePr: false,
+  });
+  eq(v.proceed, false);
+  eq(v.reason.includes("already released"), true);
+});
+
+Deno.test("releaseGate: signals ignored when manifest is not ahead", () => {
+  // A normal bump with a matching tag should proceed regardless of the
+  // stranded-detection signals.
+  const v = releaseGate("v1.2.3", "1.2.3", true, {
+    currentTagExists: true,
+    openReleasePr: false,
+  });
+  eq(v.proceed, true);
+  eq(v.reason, "version bump detected");
+});
+
 Deno.test("releaseGate: non-strict current → refuse", () => {
   // Manifest in a bad state (e.g. someone wrote "1.2.3-rc1"). Don't
   // proceed and don't crash; surface a clear reason for the operator.
