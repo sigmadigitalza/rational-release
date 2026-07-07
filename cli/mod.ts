@@ -145,10 +145,14 @@ Subcommands:
       doesn't exist. Empty input is a no-op.
 
   release-gate --prev-tag TAG --current X.Y.Z --bumped true|false
+               [--current-tag-exists true|false] [--open-release-pr true|false]
       Decide whether prepare-release should open/update a release PR.
-      Writes \`proceed=true|false\` and \`reason=...\` to GITHUB_OUTPUT
-      (when set) and to stdout. Always exits 0; the workflow gates on
-      the proceed value.
+      Writes \`proceed=true|false\`, \`reason=...\` and \`recover=true|false\`
+      to GITHUB_OUTPUT (when set) and to stdout. Always exits 0; the
+      workflow gates on the proceed value. The two optional signals let
+      the gate tell a stranded release (proceed to recover) from an
+      in-flight one (skip) when the manifest is ahead of the newest tag;
+      omit them for the conservative pre-1.9 skip.
 
   build-changelog [--output PATH] [--format md|html] [--repo OWNER/REPO]
                   [--preserve-from FILE] [--next-version VER]
@@ -650,31 +654,53 @@ async function cmdReleaseGate(args: string[]): Promise<void> {
   const prevTag = takeOption(args, "--prev-tag") ?? "";
   const current = takeOption(args, "--current");
   const bumpedRaw = takeOption(args, "--bumped");
+  // Stranded-vs-in-flight signals. Optional and tri-state: an unset flag
+  // leaves the signal `undefined`, which makes releaseGate fall back to the
+  // conservative pre-1.9 skip. The workflow always passes both.
+  const tagExistsRaw = takeOption(args, "--current-tag-exists");
+  const openPrRaw = takeOption(args, "--open-release-pr");
   if (!current || bumpedRaw == null) {
     console.error(
-      "usage: release-gate --prev-tag TAG --current X.Y.Z --bumped true|false",
+      "usage: release-gate --prev-tag TAG --current X.Y.Z --bumped true|false " +
+        "[--current-tag-exists true|false] [--open-release-pr true|false]",
     );
     process.exit(2);
   }
+  const parseBoolFlag = (name: string, raw: string | undefined) => {
+    if (raw == null) return undefined;
+    if (raw !== "true" && raw !== "false") {
+      console.error(`${name} must be "true" or "false", got "${raw}"`);
+      process.exit(2);
+    }
+    return raw === "true";
+  };
   if (bumpedRaw !== "true" && bumpedRaw !== "false") {
     console.error(`--bumped must be "true" or "false", got "${bumpedRaw}"`);
     process.exit(2);
   }
+  const signals = {
+    currentTagExists: parseBoolFlag("--current-tag-exists", tagExistsRaw),
+    openReleasePr: parseBoolFlag("--open-release-pr", openPrRaw),
+  };
   // Defense in depth: releaseGate() is designed to never throw, but if a
   // future regression slips through we still want a clean `proceed=false`
   // rather than a stack trace that crashes the workflow step.
   let verdict;
   try {
-    verdict = releaseGate(prevTag, current, bumpedRaw === "true");
+    verdict = releaseGate(prevTag, current, bumpedRaw === "true", signals);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     verdict = { proceed: false, reason: `release-gate error: ${message}` };
   }
   const output = process.env.GITHUB_OUTPUT;
-  const line = `proceed=${verdict.proceed}\nreason=${verdict.reason}\n`;
+  const line = `proceed=${verdict.proceed}\nreason=${verdict.reason}\n` +
+    `recover=${verdict.recover === true}\n`;
   if (output) await appendFile(output, line);
   process.stdout.write(line);
-  if (!verdict.proceed) {
+  if (verdict.recover) {
+    // A wedge we just auto-recovered from — make it impossible to miss.
+    console.error(`::warning::Release recovery: ${verdict.reason}`);
+  } else if (!verdict.proceed) {
     console.error(`::notice::Skipping release: ${verdict.reason}`);
   }
 }

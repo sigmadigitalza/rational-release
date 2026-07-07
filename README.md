@@ -32,12 +32,16 @@ Three reusable workflows, called via `workflow_call`:
   your manifest, force-pushes a `release/vX.Y.Z` branch, and opens/updates a
   "Release vX.Y.Z" PR. Because the changelog is finalised inside the release
   PR, merging it is the only write to `main` — the flow works unchanged on
-  protected branches.
+  protected branches. It also **self-heals a stranded release**: if a previous
+  cut failed before tagging (manifest ahead of the newest tag, no matching tag,
+  no open release PR), the next run re-opens a recovery PR — with a banner
+  explaining the recovery — instead of skipping forever.
 - **`cut-release.yml`** — fires when a `release/v*` PR is merged. Tags
   `vX.Y.Z`, runs your `artefact-task`, and creates a GitHub Release with the
-  changelog section as the body and the artefacts attached. (It can still
-  finalise the changelog itself as a fallback for release branches prepped by
-  an older `prepare-release` — that path needs push access to `main`.)
+  changelog section as the body and the artefacts attached. It is **read-only
+  on `main`** — it tags the merge commit and publishes, never committing or
+  pushing to the default branch, so a protected `main` needs no exception and a
+  failed cut can never strand a release.
 - **`validate-pr.yml`** — fires on `pull_request`. Validates the PR title and
   every commit message in the PR against the conventional-commits spec.
   Report-only by default; opt-in to gating with `gate: true`.
@@ -142,9 +146,9 @@ tag matches the manifest before publishing. This avoids the CodeQL
 | `manifest-path` | `deno.json` | (Same as above; cross-checked against branch name.) |
 | `manifest-jsonpath` | `$.version` | JSONPath-lite dot-path (must start with `$.`) inside the manifest. |
 | `release-branch-prefix` | `release/v` | Prefix for the release branch name. Must match the hardcoded `release/v` job gate in the workflow. |
-| `changelog-path` | `CHANGELOG.md` | Path to the canonical changelog. |
-| `mirror-paths` | _(empty)_ | Newline-separated `src:dst` pairs to copy after changelog finalisation. |
-| `commit-paths` | _(empty)_ | Newline-separated extra paths to `git add` into the finalisation commit. |
+| `changelog-path` | `CHANGELOG.md` | Path to the canonical changelog (read for the release notes). |
+| `mirror-paths` | _(empty)_ | **Deprecated / ignored since 1.9** — cut no longer commits, so there is nothing to mirror here (prepare-release handles it). Safe to remove. |
+| `commit-paths` | _(empty)_ | **Deprecated / ignored since 1.9** — cut no longer commits. Safe to remove. |
 | `artefact-task` | _(empty)_ | Shell command(s) run after the tag is created. |
 | `artefact-paths` | _(empty)_ | Globs of files to attach to the GitHub Release. |
 | `cli` | `jsr:@sigmadigitalza/rational-release@^1` | CLI source. JSR specifier (default) or local path (`./cli/mod.ts`) for dogfooding. |
