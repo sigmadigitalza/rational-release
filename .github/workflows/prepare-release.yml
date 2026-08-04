@@ -46,6 +46,10 @@ on:
         description: "Newline-separated shell commands to run before changelog gen (e.g. `deno task test`)."
         type: string
         default: ""
+      post-mirror-tasks:
+        description: "Newline-separated shell commands to run after the changelog is finalised and mirrored, before the prep commit is staged. Put rebuilds that ingest the changelog or its mirrors here (e.g. `deno task build` for a search index) — in `pre-tasks` they run too early and ship one release behind."
+        type: string
+        default: ""
       commit-paths:
         description: "Newline-separated extra paths to git-add into the prep commit (e.g. `ui/search-index.json`)."
         type: string
@@ -287,6 +291,28 @@ jobs:
           MIRROR_PATHS: ${{ inputs.mirror-paths }}
           CLI: ${{ inputs.cli }}
         run: deno run --allow-read --allow-write --allow-env "$CLI" mirror
+
+      - name: Run post-mirror tasks
+        # Same contract as "Run pre-tasks" (stdin subshell, not eval;
+        # RR_NEXT_VERSION / RR_PREV_TAG exposed) but placed after the
+        # changelog has been finalised and mirrored — the only point
+        # where a rebuild sees the final `[X.Y.Z]` content. Rebuilds
+        # that ingest the changelog or its mirrors (search indexes,
+        # rendered docs) belong here; run in pre-tasks they index the
+        # pre-rename state and every release commit ships one release
+        # behind. Runs even when mirror-paths is empty — the name is
+        # positional: after finalise (+ mirror when configured), before
+        # staging. List regenerated files in `commit-paths` so
+        # stage-prep picks them up.
+        if: steps.gate.outputs.proceed == 'true' && inputs.post-mirror-tasks != ''
+        shell: bash
+        env:
+          RR_NEXT_VERSION: ${{ steps.bump.outputs.next }}
+          RR_PREV_TAG: ${{ steps.prev.outputs.tag }}
+          POST_MIRROR_TASKS: ${{ inputs.post-mirror-tasks }}
+        run: |
+          set -euo pipefail
+          bash -euo pipefail <<< "$POST_MIRROR_TASKS"
 
       - name: Stage and commit prep changes
         id: stage
