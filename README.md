@@ -130,7 +130,8 @@ tag matches the manifest before publishing. This avoids the CodeQL
 | `patch-types` | _(empty)_ | Comma-separated extra commit types to treat as **patch** (e.g. `refactor,build`). Built-in `fix` / `perf` always apply. See [Bump rules](#bump-rules). |
 | `minor-types` | _(empty)_ | Comma-separated extra commit types to treat as **minor**. Built-in `feat` always applies. Wins over `patch-types` for the same type. |
 | `release-branch-prefix` | `release/v` | Prefix for the release branch name. |
-| `pre-tasks` | _(empty)_ | Newline-separated shell commands run before changelog gen. |
+| `pre-tasks` | _(empty)_ | Newline-separated shell commands run before changelog gen. Use as the release gate (tests, lint). |
+| `post-mirror-tasks` | _(empty)_ | Newline-separated shell commands run after the changelog is finalised and mirrored, before the prep commit is staged. Put rebuilds that ingest the changelog or its mirrors here (search indexes, rendered docs) — in `pre-tasks` they run too early and ship one release behind. See [`docs/advanced`](docs/advanced.html#post-mirror-tasks). |
 | `commit-paths` | _(empty)_ | Newline-separated extra paths to `git add` into the prep commit. |
 | `mirror-paths` | _(empty)_ | Newline-separated `src:dst` pairs to copy after changelog generation. |
 | `changelog-path` | `CHANGELOG.md` | Path to the canonical changelog. |

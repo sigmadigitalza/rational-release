@@ -92,10 +92,12 @@
         </p>
       </div>
       <div class="feature">
-        <h3>Custom pre-tasks</h3>
+        <h3>Custom task hooks</h3>
         <p>
-          <code>pre-tasks</code> runs your test/lint/build/regenerate steps before the release PR is opened.
-          Failures keep the PR closed.
+          <code>pre-tasks</code> gates the release PR on your test/lint steps;
+          <code>post-mirror-tasks</code> rebuilds changelog-derived artefacts after the
+          changelog is finalised and mirrored. A failing hook aborts the run — the
+          release PR is not opened or updated.
         </p>
       </div>
       <div class="feature">

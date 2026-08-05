@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Advanced examples — rational-release</title>
-  <meta name="description" content="Custom pre-tasks, mirrored docs, attached artefacts, JSR/npm publishing, and the CLI as a standalone tool.">
+  <meta name="description" content="Custom pre-tasks, mirrored docs, post-mirror rebuilds, attached artefacts, JSR/npm publishing, and the CLI as a standalone tool.">
   <link rel="stylesheet" href="assets/styles.css">
 </head>
 <body>
@@ -26,8 +26,8 @@
     <h1>Advanced examples</h1>
     <p class="lead">
       Patterns for fitting <code>rational-release</code> around real projects:
-      mirrored changelogs, attached artefacts, gated pre-tasks, JSR / npm publish triggers,
-      and using the CLI directly outside the workflows.
+      mirrored changelogs, post-mirror rebuilds, attached artefacts, gated pre-tasks,
+      JSR / npm publish triggers, and using the CLI directly outside the workflows.
     </p>
 
     <div class="toc">
@@ -35,7 +35,9 @@
       <ol>
         <li><a href="#pre-tasks">Pre-tasks: gating the release PR</a></li>
         <li><a href="#mirror">Mirroring the changelog into a docs site</a></li>
+        <li><a href="#post-mirror-tasks">Post-mirror tasks: rebuilding changelog-derived artefacts</a></li>
         <li><a href="#commit-paths">Adding generated files to the release commit</a></li>
+        <li><a href="#post-push-workflows">Re-triggering required checks on the release PR</a></li>
         <li><a href="#artefacts">Attaching artefacts to the GitHub Release</a></li>
         <li><a href="#publish">Triggering JSR / npm publish from cut-release</a></li>
         <li><a href="#manifest">Non-default manifest paths</a></li>
@@ -80,20 +82,62 @@
     CHANGELOG.md:docs/changelog.md
     CHANGELOG.md:website/src/pages/changelog.md</code></pre>
 
-    <h2 id="commit-paths">Adding generated files to the release commit</h2>
+    <h2 id="post-mirror-tasks">Post-mirror tasks: rebuilding changelog-derived artefacts</h2>
 
     <p>
-      If your <code>pre-tasks</code> regenerates a search index, an OpenAPI spec, or a
-      bundled CSS file, those files need to be part of the prepare commit so they ship
-      with the release. List the paths in <code>commit-paths</code>:
+      <code>pre-tasks</code> runs before the changelog is regenerated, finalised, and
+      mirrored. That makes it the right place for a release gate and the wrong place
+      for any build that <em>reads</em> the changelog or a mirrored copy of it &mdash;
+      a search index over the docs site, a rendered changelog page. Built there, the
+      artefact still sees the pre-release state (<code>[Unreleased]</code> not yet
+      renamed to <code>[X.Y.Z]</code>), so every release commit ships it exactly one
+      release behind.
+    </p>
+
+    <p>
+      <code>post-mirror-tasks</code> has the same contract as <code>pre-tasks</code>
+      (newline-separated shell, non-zero exit fails the run,
+      <code>$RR_NEXT_VERSION</code> / <code>$RR_PREV_TAG</code> exposed) but runs after
+      the changelog has been finalised and mirrored, immediately before the prep
+      commit is staged &mdash; the only point in the run where a rebuild sees the
+      final release content:
     </p>
 
 <pre><code><span class="tok-k">with</span>:
   <span class="tok-k">pre-tasks</span>: |
-    deno task build      <span class="tok-c"># writes ui/search-index.json and dist/openapi.json</span>
+    deno lint
+    deno test --allow-read --allow-net
+  <span class="tok-k">mirror-paths</span>: |
+    CHANGELOG.md:docs/changelog.md
+  <span class="tok-c"># The search index ingests docs/changelog.md — rebuild after the</span>
+  <span class="tok-c"># mirror so it indexes the finalised [X.Y.Z] section.</span>
+  <span class="tok-k">post-mirror-tasks</span>: |
+    deno task build
   <span class="tok-k">commit-paths</span>: |
-    ui/search-index.json
-    dist/openapi.json</code></pre>
+    ui/search-index.json</code></pre>
+
+    <p>
+      The hook also runs when <code>mirror-paths</code> is empty &mdash; it is
+      positional: after finalise (and mirror, when configured), before staging.
+      Builds with no changelog input belong in <code>pre-tasks</code>, where a
+      failure aborts the run before anything is generated.
+    </p>
+
+    <h2 id="commit-paths">Adding generated files to the release commit</h2>
+
+    <p>
+      If your <code>pre-tasks</code> or <code>post-mirror-tasks</code> regenerates a
+      search index, an OpenAPI spec, or a bundled CSS file, those files need to be
+      part of the prepare commit so they ship with the release. List the paths in
+      <code>commit-paths</code>:
+    </p>
+
+<pre><code><span class="tok-k">with</span>:
+  <span class="tok-k">pre-tasks</span>: |
+    deno task build      <span class="tok-c"># writes dist/openapi.json and dist/app.css</span>
+  <span class="tok-k">commit-paths</span>: |
+    dist/openapi.json
+    dist/app.css</code></pre>
 
     <p>
       The version bump in the manifest, the changelog, and any mirrored paths are
