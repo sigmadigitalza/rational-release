@@ -46,6 +46,14 @@ on:
 permissions:
   contents: read
 
+# setup-deno's cache restore (@actions/cache 4.0.3) races each download
+# segment against a SEGMENT_DOWNLOAD_TIMEOUT_MINS timer (default 10) and
+# clears it only on success. A failed restore leaves the timer holding the
+# step open for the full 10 minutes, so the job hits timeout-minutes and is
+# cancelled. One minute fails the restore fast; the job runs uncached.
+env:
+  SEGMENT_DOWNLOAD_TIMEOUT_MINS: "1"
+
 jobs:
   validate:
     # Skip prepare-release's own PRs — "Release vX.Y.Z" is not (and
